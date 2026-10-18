@@ -33,9 +33,9 @@ function concat(parts: Uint8Array[]): Uint8Array {
 }
 
 function fieldVarint(field: number, value: bigint | number): Uint8Array {
-  const v = BigInt(value);
-  if (v === 0n) return new Uint8Array(0); // proto3 default: omitted
-  return concat([varint((field << 3) | VARINT), varint(v)]);
+  // koilib's serializer writes uint64 fields even when zero (transfer value "0" -> 18 00); match it so
+  // operation bytes, and therefore transaction ids, are identical to what koilib-built wallets produce.
+  return concat([varint((field << 3) | VARINT), varint(BigInt(value))]);
 }
 
 function fieldBytes(field: number, value: Uint8Array): Uint8Array {

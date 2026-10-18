@@ -33,7 +33,7 @@ describe("abi-lite agrees with koilib's serializer", () => {
   });
 
   it("pqwallet arguments and results match the contract ABI types", async () => {
-    const pq = new Serializer(pqwalletAbi.koilib_types!);
+    const pq = new Serializer((pqwalletAbi.koilib_types ?? pqwalletAbi.types) as never);
     const pk = Uint8Array.from({ length: 1312 }, (_, i) => i & 0xff), proof = Uint8Array.from({ length: 2420 }, (_, i) => (i * 7) & 0xff);
     const ours = encodeSetPublicKeyArgs(pk, proof);
     const theirs = await pq.serialize({ public_key: utils.encodeBase64url(pk), proof: utils.encodeBase64url(proof) }, "set_public_key_arguments");
@@ -48,13 +48,14 @@ describe("abi-lite agrees with koilib's serializer", () => {
   });
 
   it("entry points match the ABIs", () => {
-    const m = (utils.tokenAbi.methods ?? {}) as Record<string, { entry_point?: number }>;
-    expect(m.transfer?.entry_point).toBe(TOKEN_ENTRY.transfer);
-    expect(m.balance_of?.entry_point).toBe(TOKEN_ENTRY.balance_of);
-    expect(m.mint?.entry_point).toBe(TOKEN_ENTRY.mint);
-    const p = pqwalletAbi.methods as Record<string, { entry_point?: number }>;
-    expect(p.set_public_key?.entry_point).toBe(PQWALLET_ENTRY.set_public_key);
-    expect(p.get_info?.entry_point).toBe(PQWALLET_ENTRY.get_info);
-    expect(p.get_public_key?.entry_point).toBe(PQWALLET_ENTRY.get_public_key);
+    const ep = (m: Record<string, unknown> | undefined) => Number(m?.entry_point ?? m?.entryPoint ?? m?.["entry-point"]);
+    const tm = (utils.tokenAbi.methods ?? {}) as Record<string, Record<string, unknown>>;
+    expect(ep(tm.transfer)).toBe(TOKEN_ENTRY.transfer);
+    expect(ep(tm.balanceOf)).toBe(TOKEN_ENTRY.balance_of);
+    expect(ep(tm.mint)).toBe(TOKEN_ENTRY.mint);
+    const pm = pqwalletAbi.methods as Record<string, Record<string, unknown>>;
+    expect(ep(pm.set_public_key)).toBe(PQWALLET_ENTRY.set_public_key);
+    expect(ep(pm.get_info)).toBe(PQWALLET_ENTRY.get_info);
+    expect(ep(pm.get_public_key)).toBe(PQWALLET_ENTRY.get_public_key);
   });
 });
