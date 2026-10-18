@@ -36,4 +36,9 @@ export interface PqwalletInfo {
 /** get_info on the account; any failure to read it counts as "no contract there". */
 export declare function pqwalletInfo(chain: Chain, account: string): Promise<PqwalletInfo>;
 export declare function registeredPublicKey(chain: Chain, account: string): Promise<Uint8Array | null>;
+/**
+ * The operations of the single activation transaction, in order: install the contract with every
+ * authority locked to it, then register this key with its proof of possession.
+ */
+export declare function activationOperations(account: string, keys: PqKeys, bytecode: Uint8Array): Array<Record<string, unknown>>;
 export declare function setupPqwalletAccount(chain: Chain, keys: PqKeys, onStatus: (s: SetupStatus) => void): Promise<SetupResult>;

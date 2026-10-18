@@ -2,12 +2,17 @@
 // koinos-pq CLI does with `deploy --lock` and `register`, done in the browser.
 //
 //   1. The account is the address of the bootstrap secp256k1 key (derived from the seed). The user
-//      funds it; mana is what the upload costs.
-//   2. Upload the pqwallet contract to that address with call, transaction and upload authority all
-//      governed by the contract from block one ("locked"); signed by the bootstrap key.
-//   3. Register the ML-DSA-44 public key with a proof of possession; signed by the bootstrap key,
-//      which the contract's legacy fallback accepts only while no key is registered.
-//   4. Check the registered key is ours. From then on the account answers only to ML-DSA-44.
+//      funds it; mana is what the activation costs.
+//   2. ONE transaction, signed by the bootstrap key, with two operations: upload the pqwallet
+//      contract to that address with call, transaction and upload authority all governed by the
+//      contract ("locked"), then register the ML-DSA-44 public key with a proof of possession (the
+//      contract's legacy fallback accepts the bootstrap signature only while no key is registered).
+//      Both land in the same block or neither does, so there is no moment at which the contract is
+//      installed while the bootstrap key, whose public key that transaction reveals, still rules it.
+//   3. Check the registered key is ours. From then on the account answers only to ML-DSA-44.
+//
+// An account left installed-but-unregistered by an older two-step activation (or the CLI) is finished
+// with a register-only transaction.
 //
 // Transactions are encoded with koilib's static protobuf modules and abi-lite: no code generation,
 // so this runs under a Manifest V3 extension's CSP.
@@ -75,6 +80,26 @@ async function withManaHoldRetry(fn, onWait, tries = 36, delayMs = 10000) {
         }
     }
 }
+/**
+ * The operations of the single activation transaction, in order: install the contract with every
+ * authority locked to it, then register this key with its proof of possession.
+ */
+export function activationOperations(account, keys, bytecode) {
+    const proof = proofOfPossession(utils.decodeBase58(account), keys);
+    return [
+        {
+            upload_contract: {
+                contract_id: account,
+                bytecode: utils.encodeBase64url(bytecode),
+                abi: JSON.stringify(pqwalletAbi),
+                authorizes_call_contract: true,
+                authorizes_transaction_application: true,
+                authorizes_upload_contract: true,
+            },
+        },
+        callContractOperation(account, PQWALLET_ENTRY.set_public_key, encodeSetPublicKeyArgs(keys.publicKey, proof)),
+    ];
+}
 export async function setupPqwalletAccount(chain, keys, onStatus) {
     const signer = bootstrapSigner(keys.seed);
     signer.provider = chain.provider;
@@ -86,39 +111,31 @@ export async function setupPqwalletAccount(chain, keys, onStatus) {
     let info = await pqwalletInfo(chain, account);
     if (!info.deployed) {
         const mana = await chain.mana(account);
-        if (mana < costs.deployRc)
-            throw new Error(`the account needs more mana for the upload (has ${mana}, needs ${costs.deployRc} base units)`);
-        onStatus({ step: "uploading", message: "Uploading the account contract, locked from the start" });
-        const bytecode = await loadPqwalletBytecode();
-        const operation = {
-            upload_contract: {
-                contract_id: account,
-                bytecode: utils.encodeBase64url(bytecode),
-                abi: JSON.stringify(pqwalletAbi),
-                authorizes_call_contract: true,
-                authorizes_transaction_application: true,
-                authorizes_upload_contract: true,
-            },
-        };
+        if (mana < costs.requiredMana)
+            throw new Error(`the account needs more mana to activate (has ${mana}, needs ${costs.requiredMana} base units)`);
+        onStatus({ step: "uploading", message: "Installing the contract and registering your key, in one transaction" });
+        const operations = activationOperations(account, keys, await loadPqwalletBytecode());
         const sent = await withManaHoldRetry(async () => {
             if ((await pqwalletInfo(chain, account)).deployed)
                 return null; // an earlier attempt landed meanwhile
-            const tx = { header: { payer: account, rc_limit: costs.deployRc.toString() }, operations: [operation], signatures: [] };
+            const tx = { header: { payer: account, rc_limit: costs.requiredMana.toString() }, operations, signatures: [] };
             await Transaction.prepareTransaction(tx, chain.provider, account);
             const signed = await signer.signTransaction(tx);
             await chain.provider.sendTransaction(signed);
             return signed.id;
         }, (n) => onStatus({ step: "uploading", message: `Waiting for the network to release an earlier mana hold (try ${n}, up to a few minutes)` }));
         if (sent) {
-            uploadTx = sent;
-            onStatus({ step: "uploading", message: "Upload submitted, waiting for a block", txId: uploadTx });
-            await chain.waitMined(uploadTx);
+            uploadTx = registerTx = sent;
+            onStatus({ step: "uploading", message: "Activation submitted, waiting for a block", txId: sent });
+            await chain.waitMined(sent);
         }
         info = await pqwalletInfo(chain, account);
+        // a transaction that reverts undoes both operations, so "installed but not registered" cannot come from it
         if (!info.deployed)
-            throw new Error("the contract was mined but cannot be read back; stop here and check the account");
+            throw new Error("the activation was mined but the contract cannot be read back; it may have reverted; check the account before trying again");
     }
     if (!info.keyRegistered) {
+        // only an account installed by an older two-step activation, or by the command-line tool, gets here
         onStatus({ step: "registering", message: "Registering the post-quantum key" });
         const proof = proofOfPossession(utils.decodeBase58(account), keys);
         const operation = callContractOperation(account, PQWALLET_ENTRY.set_public_key, encodeSetPublicKeyArgs(keys.publicKey, proof));

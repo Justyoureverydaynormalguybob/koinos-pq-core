@@ -5,8 +5,9 @@ import { ml_dsa44 } from "@noble/post-quantum/ml-dsa.js";
 import { utils } from "koilib";
 import { deriveKeys } from "../src/keys";
 import { CONTEXT_POP, CONTEXT_PQWALLET, proofOfPossession } from "../src/sign";
-import { bootstrapAddress, setupCostsFromPrices } from "../src/setup";
+import { activationOperations, bootstrapAddress, setupCostsFromPrices } from "../src/setup";
 import { PQWALLET_WASM_SHA256, loadPqwalletBytecode, pqwalletAbi as abi } from "../src/contract";
+import { PQWALLET_ENTRY, decodeFields } from "../src/abi-lite";
 
 const keys = deriveKeys(sha256(utf8ToBytes("koinos-pq native vector key A")));
 
@@ -36,6 +37,25 @@ describe("pqwallet account setup", () => {
     expect(methods.set_public_key?.entry_point).toBe(0x4cc6c61b);
     expect(methods.get_info?.read_only).toBe(true);
     expect(methods.get_public_key?.entry_point).toBe(0x96634f68);
+  });
+
+  it("activation is one transaction: install locked, then register this key with a valid proof", async () => {
+    const account = bootstrapAddress(keys);
+    const wasm = await loadPqwalletBytecode();
+    const ops = activationOperations(account, keys, wasm);
+    expect(ops.length).toBe(2);
+    const up = ops[0]!.upload_contract as Record<string, unknown>;
+    expect(Object.keys(ops[0]!)).toEqual(["upload_contract"]);
+    expect(up.contract_id).toBe(account);
+    expect(up.authorizes_call_contract && up.authorizes_transaction_application && up.authorizes_upload_contract).toBe(true);
+    expect(bytesToHex(sha256(utils.decodeBase64url(up.bytecode as string)))).toBe(PQWALLET_WASM_SHA256);
+    const cc = ops[1]!.call_contract as { contract_id: string; entry_point: number; args: string };
+    expect(cc.contract_id).toBe(account);
+    expect(cc.entry_point).toBe(PQWALLET_ENTRY.set_public_key);
+    const f = decodeFields(utils.decodeBase64url(cc.args));
+    const pk = f.get(1)?.[0] as Uint8Array, proof = f.get(2)?.[0] as Uint8Array;
+    expect(bytesToHex(pk)).toBe(bytesToHex(keys.publicKey));
+    expect(ml_dsa44.verify(proof, utils.decodeBase58(account), keys.publicKey, { context: CONTEXT_POP })).toBe(true);
   });
 
   it("costs are priced from the live resource market (prices seen 2026-10-18)", () => {
