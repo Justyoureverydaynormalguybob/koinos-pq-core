@@ -1,10 +1,10 @@
-import { Contract, Provider } from "koilib";
+import { Provider } from "koilib";
 import type { PqKeys } from "./keys.js";
 import { type AccountMode } from "./sign.js";
 export interface Network {
     name: string;
     rpc: string[];
-    /** REST base for account history, or null when the node has none */
+    /** REST base (history is read over JSON-RPC instead; REST sends no CORS headers), or null */
     rest: string | null;
     koin: string;
     explorerTx: ((id: string) => string) | null;
@@ -31,8 +31,9 @@ export interface HistoryItem {
 export declare class Chain {
     readonly net: Network;
     readonly provider: Provider;
-    readonly koin: Contract;
     constructor(net: Network);
+    /** chain.read_contract with pre-encoded arguments; returns the raw result bytes (empty if none). */
+    read(contractId: string, entryPoint: number, args?: Uint8Array): Promise<Uint8Array>;
     balance(address: string): Promise<bigint>;
     mana(address: string): Promise<bigint>;
     headHeight(): Promise<string>;

@@ -1,12 +1,15 @@
 // Talking to a Koinos node: balances, mana, building and sending a KOIN transfer, history.
-import { Contract, Provider, Transaction, utils } from "koilib";
+// No koilib Contract/Serializer here (they compile encoders with `new Function`); the few messages
+// we need are encoded by abi-lite, and transactions themselves by koilib's static protobuf modules.
+import { Provider, Transaction, utils } from "koilib";
+import { callContractOperation, decodeUint64Result, encodeBalanceOfArgs, encodeTransferArgs, TOKEN_ENTRY } from "./abi-lite.js";
 import type { PqKeys } from "./keys.js";
 import { signTxId, verifyEntry, type AccountMode } from "./sign.js";
 
 export interface Network {
   name: string;
   rpc: string[];
-  /** REST base for account history, or null when the node has none */
+  /** REST base (history is read over JSON-RPC instead; REST sends no CORS headers), or null */
   rest: string | null;
   koin: string;
   explorerTx: ((id: string) => string) | null;
@@ -85,16 +88,19 @@ export interface HistoryItem {
 
 export class Chain {
   readonly provider: Provider;
-  readonly koin: Contract;
 
   constructor(readonly net: Network) {
     this.provider = new Provider(net.rpc);
-    this.koin = new Contract({ id: net.koin, abi: utils.tokenAbi, provider: this.provider });
+  }
+
+  /** chain.read_contract with pre-encoded arguments; returns the raw result bytes (empty if none). */
+  async read(contractId: string, entryPoint: number, args: Uint8Array = new Uint8Array(0)): Promise<Uint8Array> {
+    const r = (await this.provider.readContract({ contract_id: contractId, entry_point: entryPoint, args: utils.encodeBase64url(args) })) as { result?: string };
+    return r.result ? utils.decodeBase64url(r.result) : new Uint8Array(0);
   }
 
   async balance(address: string): Promise<bigint> {
-    const { result } = await this.koin.functions.balanceOf!({ owner: address });
-    return BigInt((result as { value?: string } | undefined)?.value ?? "0");
+    return decodeUint64Result(await this.read(this.net.koin, TOKEN_ENTRY.balance_of, encodeBalanceOfArgs(address)));
   }
 
   async mana(address: string): Promise<bigint> {
@@ -111,7 +117,7 @@ export class Chain {
     const { from, to, valueBase, keys, mode } = opts;
     if (!isAddress(to)) throw new Error("recipient is not a valid Koinos address");
     if (valueBase <= 0n) throw new Error("amount must be positive");
-    const { operation } = await this.koin.functions.transfer!({ from, to, value: valueBase.toString() }, { onlyOperation: true });
+    const operation = callContractOperation(this.net.koin, TOKEN_ENTRY.transfer, encodeTransferArgs(from, to, valueBase));
 
     let rcLimit = opts.rcLimit;
     if (rcLimit === undefined) {
@@ -198,7 +204,7 @@ function summarizeHistory(row: Record<string, unknown>, me: string): HistoryItem
   const events = trx?.receipt?.events ?? [];
   let summary = block ? "block produced" : "transaction";
   for (const ev of events) {
-    if (typeof ev.name !== "string" || !/(^|.)transfer_event$/.test(ev.name)) continue; // mainnet and Harbinger name it differently
+    if (typeof ev.name !== "string" || !/(^|\.)transfer_event$/.test(ev.name)) continue; // mainnet and Harbinger name it differently
     let d: { from?: string; to?: string; value?: string } = {};
     try {
       d = typeof ev.data === "string" ? decodeTransferEvent(ev.data) : ((ev.data ?? {}) as typeof d);

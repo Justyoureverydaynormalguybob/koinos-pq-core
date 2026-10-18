@@ -3,4 +3,5 @@ export * from "./sign.js";
 export * from "./chain.js";
 export * from "./setup.js";
 export * from "./signer.js";
+export * from "./abi-lite.js";
 export { pqwalletAbi, loadPqwalletBytecode, PQWALLET_WASM_SHA256, PQWALLET_SOURCE } from "./contract.js";

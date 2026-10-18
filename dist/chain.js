@@ -1,5 +1,8 @@
 // Talking to a Koinos node: balances, mana, building and sending a KOIN transfer, history.
-import { Contract, Provider, Transaction, utils } from "koilib";
+// No koilib Contract/Serializer here (they compile encoders with `new Function`); the few messages
+// we need are encoded by abi-lite, and transactions themselves by koilib's static protobuf modules.
+import { Provider, Transaction, utils } from "koilib";
+import { callContractOperation, decodeUint64Result, encodeBalanceOfArgs, encodeTransferArgs, TOKEN_ENTRY } from "./abi-lite.js";
 import { signTxId, verifyEntry } from "./sign.js";
 export const NETWORKS = {
     mainnet: {
@@ -58,11 +61,14 @@ export class Chain {
     constructor(net) {
         this.net = net;
         this.provider = new Provider(net.rpc);
-        this.koin = new Contract({ id: net.koin, abi: utils.tokenAbi, provider: this.provider });
+    }
+    /** chain.read_contract with pre-encoded arguments; returns the raw result bytes (empty if none). */
+    async read(contractId, entryPoint, args = new Uint8Array(0)) {
+        const r = (await this.provider.readContract({ contract_id: contractId, entry_point: entryPoint, args: utils.encodeBase64url(args) }));
+        return r.result ? utils.decodeBase64url(r.result) : new Uint8Array(0);
     }
     async balance(address) {
-        const { result } = await this.koin.functions.balanceOf({ owner: address });
-        return BigInt(result?.value ?? "0");
+        return decodeUint64Result(await this.read(this.net.koin, TOKEN_ENTRY.balance_of, encodeBalanceOfArgs(address)));
     }
     async mana(address) {
         return BigInt(await this.provider.getAccountRc(address));
@@ -78,7 +84,7 @@ export class Chain {
             throw new Error("recipient is not a valid Koinos address");
         if (valueBase <= 0n)
             throw new Error("amount must be positive");
-        const { operation } = await this.koin.functions.transfer({ from, to, value: valueBase.toString() }, { onlyOperation: true });
+        const operation = callContractOperation(this.net.koin, TOKEN_ENTRY.transfer, encodeTransferArgs(from, to, valueBase));
         let rcLimit = opts.rcLimit;
         if (rcLimit === undefined) {
             // the mempool reserves each pending tx's rc_limit, so never ask for everything
@@ -164,7 +170,7 @@ function summarizeHistory(row, me) {
     const events = trx?.receipt?.events ?? [];
     let summary = block ? "block produced" : "transaction";
     for (const ev of events) {
-        if (typeof ev.name !== "string" || !/(^|.)transfer_event$/.test(ev.name))
+        if (typeof ev.name !== "string" || !/(^|\.)transfer_event$/.test(ev.name))
             continue; // mainnet and Harbinger name it differently
         let d = {};
         try {

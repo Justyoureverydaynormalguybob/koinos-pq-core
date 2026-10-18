@@ -8,16 +8,20 @@
 //   3. Register the ML-DSA-44 public key with a proof of possession; signed by the bootstrap key,
 //      which the contract's legacy fallback accepts only while no key is registered.
 //   4. Check the registered key is ours. From then on the account answers only to ML-DSA-44.
-import { Contract, Transaction, utils } from "koilib";
+//
+// Transactions are encoded with koilib's static protobuf modules and abi-lite: no code generation,
+// so this runs under a Manifest V3 extension's CSP.
+import { Transaction, utils } from "koilib";
+import { callContractOperation, decodeGetInfoResult, decodeGetPublicKeyResult, encodeSetPublicKeyArgs, PQWALLET_ENTRY } from "./abi-lite.js";
+import { loadPqwalletBytecode, pqwalletAbi } from "./contract.js";
 import { bootstrapSigner } from "./keys.js";
 import { proofOfPossession } from "./sign.js";
-import { loadPqwalletBytecode, pqwalletAbi } from "./contract.js";
-const ONE_KOIN = 100000000n;
 /**
  * What the two transactions use, from the Harbinger run (upload: 62,266 B bytecode + 3 KB ABI stored
  * and carried; register: the 1,312 B key stored, a 4 KB transaction, about 6.5 M ticks to verify the
  * proof of possession in interpreted WASM). Priced from the live resource market with a 25% margin:
- * the model gives 5.45 / 0.54 tKOIN where Harbinger charged 5.07 / 0.35.
+ * the model gives 5.45 / 0.54 tKOIN where Harbinger charged 5.07 / 0.35; mainnet charged 44.9 / 2.9 KOIN
+ * against budgets of 60.2 / 5.6.
  */
 const UPLOAD_USAGE = { disk: 66000n, network: 66500n, compute: 2500000n };
 const REGISTER_USAGE = { disk: 1600n, network: 4000n, compute: 6500000n };
@@ -40,20 +44,16 @@ export function bootstrapAddress(keys) {
 }
 /** get_info on the account; any failure to read it counts as "no contract there". */
 export async function pqwalletInfo(chain, account) {
-    const c = new Contract({ id: account, abi: pqwalletAbi, provider: chain.provider });
     try {
-        const { result } = await c.functions.get_info({});
-        return { deployed: true, keyRegistered: Boolean(result?.key_registered) };
+        const info = decodeGetInfoResult(await chain.read(account, PQWALLET_ENTRY.get_info));
+        return { deployed: info.publicKeyBytes === 1312, keyRegistered: info.keyRegistered };
     }
     catch {
         return { deployed: false, keyRegistered: false };
     }
 }
 export async function registeredPublicKey(chain, account) {
-    const c = new Contract({ id: account, abi: pqwalletAbi, provider: chain.provider });
-    const { result } = await c.functions.get_public_key({});
-    const pk = result?.value; // get_public_key_result { bytes value = 1; }
-    return pk ? utils.decodeBase64url(pk) : null;
+    return decodeGetPublicKeyResult(await chain.read(account, PQWALLET_ENTRY.get_public_key));
 }
 /**
  * The mempool keeps a transaction's whole rc_limit on hold until its block is irreversible (about
@@ -90,20 +90,27 @@ export async function setupPqwalletAccount(chain, keys, onStatus) {
             throw new Error(`the account needs more mana for the upload (has ${mana}, needs ${costs.deployRc} base units)`);
         onStatus({ step: "uploading", message: "Uploading the account contract, locked from the start" });
         const bytecode = await loadPqwalletBytecode();
-        const c = new Contract({ id: account, abi: pqwalletAbi, provider: chain.provider, signer, bytecode });
-        const deployed = await withManaHoldRetry(async () => {
+        const operation = {
+            upload_contract: {
+                contract_id: account,
+                bytecode: utils.encodeBase64url(bytecode),
+                abi: JSON.stringify(pqwalletAbi),
+                authorizes_call_contract: true,
+                authorizes_transaction_application: true,
+                authorizes_upload_contract: true,
+            },
+        };
+        const sent = await withManaHoldRetry(async () => {
             if ((await pqwalletInfo(chain, account)).deployed)
                 return null; // an earlier attempt landed meanwhile
-            return c.deploy({
-                abi: JSON.stringify(pqwalletAbi),
-                authorizesCallContract: true,
-                authorizesTransactionApplication: true,
-                authorizesUploadContract: true,
-                rcLimit: costs.deployRc.toString(),
-            });
+            const tx = { header: { payer: account, rc_limit: costs.deployRc.toString() }, operations: [operation], signatures: [] };
+            await Transaction.prepareTransaction(tx, chain.provider, account);
+            const signed = await signer.signTransaction(tx);
+            await chain.provider.sendTransaction(signed);
+            return signed.id;
         }, (n) => onStatus({ step: "uploading", message: `Waiting for the network to release an earlier mana hold (try ${n}, up to a few minutes)` }));
-        if (deployed) {
-            uploadTx = deployed.transaction.id;
+        if (sent) {
+            uploadTx = sent;
             onStatus({ step: "uploading", message: "Upload submitted, waiting for a block", txId: uploadTx });
             await chain.waitMined(uploadTx);
         }
@@ -113,9 +120,8 @@ export async function setupPqwalletAccount(chain, keys, onStatus) {
     }
     if (!info.keyRegistered) {
         onStatus({ step: "registering", message: "Registering the post-quantum key" });
-        const c = new Contract({ id: account, abi: pqwalletAbi, provider: chain.provider });
         const proof = proofOfPossession(utils.decodeBase58(account), keys);
-        const { operation } = await c.functions.set_public_key({ public_key: utils.encodeBase64url(keys.publicKey), proof: utils.encodeBase64url(proof) }, { onlyOperation: true });
+        const operation = callContractOperation(account, PQWALLET_ENTRY.set_public_key, encodeSetPublicKeyArgs(keys.publicKey, proof));
         const tx = { header: { payer: account, rc_limit: costs.registerRc.toString() }, operations: [operation], signatures: [] };
         await Transaction.prepareTransaction(tx, chain.provider, account);
         const signed = await signer.signTransaction(tx); // bootstrap signature: the contract's legacy fallback, valid only before a key is registered
