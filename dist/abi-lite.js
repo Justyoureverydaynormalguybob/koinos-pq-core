@@ -101,11 +101,17 @@ export const TOKEN_ENTRY = {
 };
 /** transfer_arguments { bytes from = 1; bytes to = 2; uint64 value = 3; } */
 export function encodeTransferArgs(from, to, value) {
-    return concat([fieldBytes(1, addr(from)), fieldBytes(2, addr(to)), fieldVarint(3, value)]);
+    return concat([fieldBytes(1, addr(from)), fieldBytes(2, addr(to)), fieldVarint(3, uint64(value))]);
 }
 /** mint_arguments { bytes to = 1; uint64 value = 2; } */
 export function encodeMintArgs(to, value) {
-    return concat([fieldBytes(1, addr(to)), fieldVarint(2, value)]);
+    return concat([fieldBytes(1, addr(to)), fieldVarint(2, uint64(value))]);
+}
+/** A uint64 field value; anything outside 0..2^64-1 would wrap on the chain, so it is refused here. */
+function uint64(v) {
+    if (v < 0n || v > 0xffffffffffffffffn)
+        throw new Error("value out of uint64 range");
+    return v;
 }
 /** balance_of_arguments { bytes owner = 1; } */
 export function encodeBalanceOfArgs(owner) {

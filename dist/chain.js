@@ -34,6 +34,7 @@ export const NETWORKS = {
 };
 export const KOIN_DECIMALS = 8;
 const ONE_KOIN = 10n ** BigInt(KOIN_DECIMALS);
+const MAX_UINT64 = 0xffffffffffffffffn;
 export function formatKoin(base, places = 8) {
     const neg = base < 0n;
     const v = neg ? -base : base;
@@ -46,7 +47,10 @@ export function parseKoin(text) {
     const m = /^(\d+)(?:\.(\d{1,8}))?$/.exec(text.trim());
     if (!m)
         throw new Error("amount must be a number with at most 8 decimal places");
-    return BigInt(m[1]) * ONE_KOIN + BigInt((m[2] ?? "").padEnd(KOIN_DECIMALS, "0"));
+    const v = BigInt(m[1]) * ONE_KOIN + BigInt((m[2] ?? "").padEnd(KOIN_DECIMALS, "0"));
+    if (v > MAX_UINT64)
+        throw new Error("amount is larger than the chain can represent");
+    return v;
 }
 export function isAddress(s) {
     try {

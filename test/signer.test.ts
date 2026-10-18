@@ -3,7 +3,9 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { utils } from "koilib";
 import { deriveKeys } from "../src/keys";
-import { verifyEntry } from "../src/sign";
+import { NATIVE_ENTRY_BYTES, verifyEntry, verifyMessageEntry } from "../src/sign";
+import { parseKoin } from "../src/chain";
+import { encodeTransferArgs } from "../src/abi-lite";
 import { PqSigner } from "../src/signer";
 
 const keys = deriveKeys(sha256(utf8ToBytes("koinos-pq native vector key A")));
@@ -40,10 +42,30 @@ describe("PqSigner (koilib-compatible)", () => {
     await expect(PqSigner.native(keys).signBlock()).rejects.toThrow(/block/);
   });
 
-  it("signMessage signs sha256(message) in the account's format", async () => {
-    const s = PqSigner.native(keys);
-    const sig = await s.signMessage("hello koinos");
-    const id = "0x1220" + bytesToHex(sha256(utf8ToBytes("hello koinos")));
-    expect(verifyEntry(sig, id, keys.publicKey, "native")).toBe(true);
+  it("signMessage uses the message context: verifies as a message, never as a transaction", async () => {
+    for (const mode of ["native", "pqwallet"] as const) {
+      const s = mode === "native" ? PqSigner.native(keys) : PqSigner.pqwallet(keys, "1LQYsdpGuA3nwU5G1jANCnMWs3yYWfHwkQ");
+      const sig = await s.signMessage("hello koinos");
+      expect(sig.length).toBe(mode === "native" ? NATIVE_ENTRY_BYTES : 2420);
+      expect(verifyMessageEntry(sig, utf8ToBytes("hello koinos"), keys.publicKey, mode)).toBe(true);
+      expect(verifyMessageEntry(sig, utf8ToBytes("hello koinoz"), keys.publicKey, mode)).toBe(false);
+      // the attack the old design allowed: the page passes a transaction header (or its hash) as the "message"
+      const asTxId = "0x1220" + bytesToHex(sha256(utf8ToBytes("hello koinos")));
+      expect(verifyEntry(sig, asTxId, keys.publicKey, mode)).toBe(false);
+    }
+  });
+
+  it("amounts above uint64 are refused instead of wrapping on the chain", () => {
+    expect(parseKoin("184467440737.09551615")).toBe(0xffffffffffffffffn);
+    expect(() => parseKoin("184467440737.09551616")).toThrow(/larger/);
+    const A = "1LQYsdpGuA3nwU5G1jANCnMWs3yYWfHwkQ";
+    expect(() => encodeTransferArgs(A, A, 0x10000000000000000n)).toThrow(/uint64/);
+    expect(() => encodeTransferArgs(A, A, -1n)).toThrow(/uint64/);
+  });
+
+  it("a transaction signature does not verify as a signed message", async () => {
+    const id = utils.toUint8Array(txId.slice(2));
+    const entry = await PqSigner.native(keys).signHash(id);
+    expect(verifyMessageEntry(entry, id, keys.publicKey, "native")).toBe(false);
   });
 });

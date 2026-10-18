@@ -48,6 +48,7 @@ export const NETWORKS: Record<string, Network> = {
 
 export const KOIN_DECIMALS = 8;
 const ONE_KOIN = 10n ** BigInt(KOIN_DECIMALS);
+const MAX_UINT64 = 0xffffffffffffffffn;
 
 export function formatKoin(base: bigint, places = 8): string {
   const neg = base < 0n;
@@ -61,7 +62,9 @@ export function formatKoin(base: bigint, places = 8): string {
 export function parseKoin(text: string): bigint {
   const m = /^(\d+)(?:\.(\d{1,8}))?$/.exec(text.trim());
   if (!m) throw new Error("amount must be a number with at most 8 decimal places");
-  return BigInt(m[1]!) * ONE_KOIN + BigInt((m[2] ?? "").padEnd(KOIN_DECIMALS, "0"));
+  const v = BigInt(m[1]!) * ONE_KOIN + BigInt((m[2] ?? "").padEnd(KOIN_DECIMALS, "0"));
+  if (v > MAX_UINT64) throw new Error("amount is larger than the chain can represent");
+  return v;
 }
 
 export function isAddress(s: string): boolean {

@@ -3,7 +3,7 @@
 // post-quantum account without knowing how its signature is made.
 import { Transaction, utils, type Provider, type TransactionJson } from "koilib";
 import type { PqKeys } from "./keys.js";
-import { signTxId, type AccountMode } from "./sign.js";
+import { signMessageEntry, signTxId, type AccountMode } from "./sign.js";
 
 type Hex = string;
 type TxLike = TransactionJson & { id?: Hex; wait?: (type?: "byTransactionId" | "byBlock", timeout?: number) => Promise<unknown> };
@@ -54,13 +54,13 @@ export class PqSigner {
   }
 
   /**
-   * Signs sha2-256(message) the same way a transaction id is signed. Note for dapps: unlike a secp256k1
-   * signature, no public key can be recovered from this; verify it against the account's registered key.
+   * Signs the message bytes under the "koinos/message/1" context (see sign.ts), so a signed message can
+   * never be used as a transaction signature. Note for dapps: unlike a secp256k1 signature, no public key
+   * can be recovered from this; verify it with verifyMessageEntry against the account's key.
    */
   async signMessage(message: string | Uint8Array): Promise<Uint8Array> {
     const bytes = typeof message === "string" ? new TextEncoder().encode(message) : message;
-    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes as BufferSource));
-    return this.signHash(digest);
+    return signMessageEntry(bytes, this.keys, this.mode);
   }
 
   async prepareTransaction(tx: TxLike): Promise<TxLike> {

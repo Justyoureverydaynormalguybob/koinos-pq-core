@@ -2,7 +2,7 @@
 // (Contract calls, dapp provider flows, the Kondor-style `getSigner(address)` API) can use a
 // post-quantum account without knowing how its signature is made.
 import { Transaction, utils } from "koilib";
-import { signTxId } from "./sign.js";
+import { signMessageEntry, signTxId } from "./sign.js";
 const TX_ID_PREFIX = new Uint8Array([0x12, 0x20]); // sha2-256 multihash header
 export class PqSigner {
     /**
@@ -43,13 +43,13 @@ export class PqSigner {
         return signTxId("0x" + utils.toHexString(id), this.keys, this.mode);
     }
     /**
-     * Signs sha2-256(message) the same way a transaction id is signed. Note for dapps: unlike a secp256k1
-     * signature, no public key can be recovered from this; verify it against the account's registered key.
+     * Signs the message bytes under the "koinos/message/1" context (see sign.ts), so a signed message can
+     * never be used as a transaction signature. Note for dapps: unlike a secp256k1 signature, no public key
+     * can be recovered from this; verify it with verifyMessageEntry against the account's key.
      */
     async signMessage(message) {
         const bytes = typeof message === "string" ? new TextEncoder().encode(message) : message;
-        const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-        return this.signHash(digest);
+        return signMessageEntry(bytes, this.keys, this.mode);
     }
     async prepareTransaction(tx) {
         if (!this.provider)

@@ -24,8 +24,9 @@ export declare class PqSigner {
     /** The bytes that go into `transaction.signatures` for this account. `hash` is the 32-byte digest or the 34-byte multihash. */
     signHash(hash: Uint8Array): Promise<Uint8Array>;
     /**
-     * Signs sha2-256(message) the same way a transaction id is signed. Note for dapps: unlike a secp256k1
-     * signature, no public key can be recovered from this; verify it against the account's registered key.
+     * Signs the message bytes under the "koinos/message/1" context (see sign.ts), so a signed message can
+     * never be used as a transaction signature. Note for dapps: unlike a secp256k1 signature, no public key
+     * can be recovered from this; verify it with verifyMessageEntry against the account's key.
      */
     signMessage(message: string | Uint8Array): Promise<Uint8Array>;
     prepareTransaction(tx: TxLike): Promise<TxLike>;
