@@ -1,0 +1,26 @@
+{
+  "name": "koinos-pq-core",
+  "version": "0.1.0",
+  "description": "ML-DSA-44 (FIPS 204) accounts for Koinos: keys, the two signature formats, pqwallet account setup, chain helpers, and a koilib-compatible signer. Shared by the koinos-pq web wallet and the browser extension.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "prepare": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.4.0",
+    "@noble/post-quantum": "^0.7.1",
+    "@scure/bip39": "^2.0.0",
+    "koilib": "^9.4.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}
