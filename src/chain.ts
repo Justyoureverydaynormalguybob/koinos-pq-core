@@ -1,7 +1,7 @@
 // Talking to a Koinos node: balances, mana, building and sending a KOIN transfer, history.
 import { Contract, Provider, Transaction, utils } from "koilib";
-import type { PqKeys } from "./keys";
-import { signTxId, verifyEntry, type AccountMode } from "./sign";
+import type { PqKeys } from "./keys.js";
+import { signTxId, verifyEntry, type AccountMode } from "./sign.js";
 
 export interface Network {
   name: string;

@@ -7,7 +7,7 @@
 // contract changes, and update the hash here through that file only.
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { PQWALLET_ABI, PQWALLET_WASM_BASE64, PQWALLET_WASM_SHA256 } from "./contract-data";
+import { PQWALLET_ABI, PQWALLET_WASM_BASE64, PQWALLET_WASM_SHA256 } from "./contract-data.js";
 export { PQWALLET_WASM_SHA256 };
 export const PQWALLET_SOURCE = "koinos-pq dist/pqwallet.wasm (contract/assembly/Pqwallet.ts + wasm/dilithium.wasm, verify-only ML-DSA-44)";
 export const pqwalletAbi = PQWALLET_ABI;

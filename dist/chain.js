@@ -1,6 +1,6 @@
 // Talking to a Koinos node: balances, mana, building and sending a KOIN transfer, history.
 import { Contract, Provider, Transaction, utils } from "koilib";
-import { signTxId, verifyEntry } from "./sign";
+import { signTxId, verifyEntry } from "./sign.js";
 export const NETWORKS = {
     mainnet: {
         name: "mainnet",

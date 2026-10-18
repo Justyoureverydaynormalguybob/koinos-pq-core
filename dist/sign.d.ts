@@ -1,4 +1,4 @@
-import { type PqKeys } from "./keys";
+import { type PqKeys } from "./keys.js";
 export type AccountMode = "native" | "pqwallet";
 export declare const CONTEXT_PQWALLET: Uint8Array<ArrayBufferLike> & Uint8Array<ArrayBuffer>;
 export declare const CONTEXT_POP: Uint8Array<ArrayBufferLike> & Uint8Array<ArrayBuffer>;

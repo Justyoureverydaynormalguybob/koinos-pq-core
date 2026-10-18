@@ -11,7 +11,7 @@
 // Different contexts mean a signature made for one route can never be replayed on the other.
 import { ml_dsa44 } from "@noble/post-quantum/ml-dsa.js";
 import { hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
-import { PK_BYTES, SIG_BYTES } from "./keys";
+import { PK_BYTES, SIG_BYTES } from "./keys.js";
 export const CONTEXT_PQWALLET = utf8ToBytes("koinos/pqwallet/1");
 export const CONTEXT_POP = utf8ToBytes("koinos/pqwallet/1/pop");
 export const CONTEXT_NATIVE = utf8ToBytes("koinos/tx/1");

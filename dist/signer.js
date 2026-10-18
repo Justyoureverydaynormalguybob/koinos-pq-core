@@ -2,7 +2,7 @@
 // (Contract calls, dapp provider flows, the Kondor-style `getSigner(address)` API) can use a
 // post-quantum account without knowing how its signature is made.
 import { Transaction, utils } from "koilib";
-import { signTxId } from "./sign";
+import { signTxId } from "./sign.js";
 const TX_ID_PREFIX = new Uint8Array([0x12, 0x20]); // sha2-256 multihash header
 export class PqSigner {
     /**

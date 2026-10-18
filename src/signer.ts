@@ -2,8 +2,8 @@
 // (Contract calls, dapp provider flows, the Kondor-style `getSigner(address)` API) can use a
 // post-quantum account without knowing how its signature is made.
 import { Transaction, utils, type Provider, type TransactionJson } from "koilib";
-import type { PqKeys } from "./keys";
-import { signTxId, type AccountMode } from "./sign";
+import type { PqKeys } from "./keys.js";
+import { signTxId, type AccountMode } from "./sign.js";
 
 type Hex = string;
 type TxLike = TransactionJson & { id?: Hex; wait?: (type?: "byTransactionId" | "byBlock", timeout?: number) => Promise<unknown> };

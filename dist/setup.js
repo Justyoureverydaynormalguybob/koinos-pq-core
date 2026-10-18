@@ -9,9 +9,9 @@
 //      which the contract's legacy fallback accepts only while no key is registered.
 //   4. Check the registered key is ours. From then on the account answers only to ML-DSA-44.
 import { Contract, Transaction, utils } from "koilib";
-import { bootstrapSigner } from "./keys";
-import { proofOfPossession } from "./sign";
-import { loadPqwalletBytecode, pqwalletAbi } from "./contract";
+import { bootstrapSigner } from "./keys.js";
+import { proofOfPossession } from "./sign.js";
+import { loadPqwalletBytecode, pqwalletAbi } from "./contract.js";
 const ONE_KOIN = 100000000n;
 /**
  * What the two transactions use, from the Harbinger run (upload: 62,266 B bytecode + 3 KB ABI stored

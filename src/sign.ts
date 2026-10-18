@@ -11,7 +11,7 @@
 // Different contexts mean a signature made for one route can never be replayed on the other.
 import { ml_dsa44 } from "@noble/post-quantum/ml-dsa.js";
 import { hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
-import { PK_BYTES, SIG_BYTES, type PqKeys } from "./keys";
+import { PK_BYTES, SIG_BYTES, type PqKeys } from "./keys.js";
 
 export type AccountMode = "native" | "pqwallet";
 

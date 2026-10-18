@@ -9,10 +9,10 @@
 //      which the contract's legacy fallback accepts only while no key is registered.
 //   4. Check the registered key is ours. From then on the account answers only to ML-DSA-44.
 import { Contract, Transaction, utils } from "koilib";
-import type { Chain } from "./chain";
-import { bootstrapSigner, type PqKeys } from "./keys";
-import { proofOfPossession } from "./sign";
-import { loadPqwalletBytecode, pqwalletAbi } from "./contract";
+import type { Chain } from "./chain.js";
+import { bootstrapSigner, type PqKeys } from "./keys.js";
+import { proofOfPossession } from "./sign.js";
+import { loadPqwalletBytecode, pqwalletAbi } from "./contract.js";
 
 export type SetupStep = "checking" | "uploading" | "registering" | "verifying" | "done";
 export interface SetupStatus {

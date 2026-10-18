@@ -1,6 +1,6 @@
 import { type Provider, type TransactionJson } from "koilib";
-import type { PqKeys } from "./keys";
-import { type AccountMode } from "./sign";
+import type { PqKeys } from "./keys.js";
+import { type AccountMode } from "./sign.js";
 type Hex = string;
 type TxLike = TransactionJson & {
     id?: Hex;

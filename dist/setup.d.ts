@@ -1,5 +1,5 @@
-import type { Chain } from "./chain";
-import { type PqKeys } from "./keys";
+import type { Chain } from "./chain.js";
+import { type PqKeys } from "./keys.js";
 export type SetupStep = "checking" | "uploading" | "registering" | "verifying" | "done";
 export interface SetupStatus {
     step: SetupStep;
