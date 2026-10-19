@@ -86,7 +86,14 @@ export interface HistoryItem {
   seq: string;
   txId: string | null;
   blockHeight: string | null;
+  /** a sentence assuming KOIN (8 decimals); use the fields below to label other tokens */
   summary: string;
+  /** for a transfer that touched this address: the token contract, the amount in base units, and the other party */
+  contract: string | null;
+  valueBase: string | null;
+  direction: "in" | "out" | null;
+  counterparty: string | null;
+  reverted: boolean;
 }
 
 export class Chain {
@@ -226,6 +233,7 @@ function summarizeHistory(row: Record<string, unknown>, me: string): HistoryItem
   const txId = trx?.transaction?.id ?? null;
   const events = trx?.receipt?.events ?? [];
   let summary = block ? "block produced" : "transaction";
+  let contract: string | null = null, valueBase: string | null = null, direction: "in" | "out" | null = null, counterparty: string | null = null;
   for (const ev of events) {
     if (typeof ev.name !== "string" || !/(^|\.)transfer_event$/.test(ev.name)) continue; // mainnet and Harbinger name it differently
     let d: { from?: string; to?: string; value?: string } = {};
@@ -235,13 +243,22 @@ function summarizeHistory(row: Record<string, unknown>, me: string): HistoryItem
       continue;
     }
     const amount = d.value ? formatKoin(BigInt(d.value)) : "?";
-    if (d.to === me) summary = `received ${amount} from ${short(d.from)}`;
-    else if (d.from === me) summary = `sent ${amount} to ${short(d.to)}`;
-    else continue;
+    if (d.to === me) {
+      summary = `received ${amount} from ${short(d.from)}`;
+      direction = "in";
+      counterparty = d.from ?? null;
+    } else if (d.from === me) {
+      summary = `sent ${amount} to ${short(d.to)}`;
+      direction = "out";
+      counterparty = d.to ?? null;
+    } else continue;
+    contract = typeof ev.source === "string" ? ev.source : null;
+    valueBase = d.value ?? null;
     break;
   }
-  if (trx?.receipt?.reverted) summary += " (reverted)";
-  return { seq, txId, blockHeight: block?.header?.height ?? null, summary };
+  const reverted = !!trx?.receipt?.reverted;
+  if (reverted) summary += " (reverted)";
+  return { seq, txId, blockHeight: block?.header?.height ?? null, summary, contract, valueBase, direction, counterparty, reverted };
 }
 
 export function short(a: string | undefined): string {

@@ -193,6 +193,7 @@ function summarizeHistory(row, me) {
     const txId = trx?.transaction?.id ?? null;
     const events = trx?.receipt?.events ?? [];
     let summary = block ? "block produced" : "transaction";
+    let contract = null, valueBase = null, direction = null, counterparty = null;
     for (const ev of events) {
         if (typeof ev.name !== "string" || !/(^|\.)transfer_event$/.test(ev.name))
             continue; // mainnet and Harbinger name it differently
@@ -204,17 +205,26 @@ function summarizeHistory(row, me) {
             continue;
         }
         const amount = d.value ? formatKoin(BigInt(d.value)) : "?";
-        if (d.to === me)
+        if (d.to === me) {
             summary = `received ${amount} from ${short(d.from)}`;
-        else if (d.from === me)
+            direction = "in";
+            counterparty = d.from ?? null;
+        }
+        else if (d.from === me) {
             summary = `sent ${amount} to ${short(d.to)}`;
+            direction = "out";
+            counterparty = d.to ?? null;
+        }
         else
             continue;
+        contract = typeof ev.source === "string" ? ev.source : null;
+        valueBase = d.value ?? null;
         break;
     }
-    if (trx?.receipt?.reverted)
+    const reverted = !!trx?.receipt?.reverted;
+    if (reverted)
         summary += " (reverted)";
-    return { seq, txId, blockHeight: block?.header?.height ?? null, summary };
+    return { seq, txId, blockHeight: block?.header?.height ?? null, summary, contract, valueBase, direction, counterparty, reverted };
 }
 export function short(a) {
     return a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "?";

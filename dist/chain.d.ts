@@ -26,7 +26,14 @@ export interface HistoryItem {
     seq: string;
     txId: string | null;
     blockHeight: string | null;
+    /** a sentence assuming KOIN (8 decimals); use the fields below to label other tokens */
     summary: string;
+    /** for a transfer that touched this address: the token contract, the amount in base units, and the other party */
+    contract: string | null;
+    valueBase: string | null;
+    direction: "in" | "out" | null;
+    counterparty: string | null;
+    reverted: boolean;
 }
 export declare class Chain {
     readonly net: Network;
