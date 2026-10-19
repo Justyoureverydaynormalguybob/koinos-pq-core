@@ -35,9 +35,21 @@ export declare class Chain {
     /** chain.read_contract with pre-encoded arguments; returns the raw result bytes (empty if none). */
     read(contractId: string, entryPoint: number, args?: Uint8Array): Promise<Uint8Array>;
     balance(address: string): Promise<bigint>;
+    /** balance_of on any KCS-4 token contract, in the token's base units. */
+    tokenBalance(contract: string, address: string): Promise<bigint>;
+    /** name, symbol and decimals of a KCS-4 token contract. Throws if the contract does not answer like a token. */
+    tokenInfo(contract: string): Promise<{
+        name: string;
+        symbol: string;
+        decimals: number;
+    }>;
     mana(address: string): Promise<bigint>;
     headHeight(): Promise<string>;
-    /** Builds, signs with the ML-DSA key for the account's mode, checks the signature locally, submits. */
+    /**
+     * Builds a token transfer, signs it with the ML-DSA key for the account's mode, checks the signature
+     * locally, submits. `contract` is the token (KCS-4 `transfer` entry point); it defaults to KOIN, and any
+     * other token goes through exactly the same path with a different contract id.
+     */
     sendKoin(opts: {
         from: string;
         to: string;
@@ -45,6 +57,7 @@ export declare class Chain {
         keys: PqKeys;
         mode: AccountMode;
         rcLimit?: bigint;
+        contract?: string;
     }): Promise<SendResult>;
     /** Resolves with the block height once the transaction is in a block (or throws on timeout). */
     waitMined(txId: string, timeoutMs?: number): Promise<string>;

@@ -2,7 +2,7 @@
 // No koilib Contract/Serializer here (they compile encoders with `new Function`); the few messages
 // we need are encoded by abi-lite, and transactions themselves by koilib's static protobuf modules.
 import { Provider, Transaction, utils } from "koilib";
-import { callContractOperation, decodeUint64Result, encodeBalanceOfArgs, encodeTransferArgs, TOKEN_ENTRY } from "./abi-lite.js";
+import { callContractOperation, decodeDecimalsResult, decodeStringResult, decodeUint64Result, encodeBalanceOfArgs, encodeTransferArgs, TOKEN_ENTRY } from "./abi-lite.js";
 import { signTxId, verifyEntry } from "./sign.js";
 export const NETWORKS = {
     mainnet: {
@@ -72,7 +72,20 @@ export class Chain {
         return r.result ? utils.decodeBase64url(r.result) : new Uint8Array(0);
     }
     async balance(address) {
-        return decodeUint64Result(await this.read(this.net.koin, TOKEN_ENTRY.balance_of, encodeBalanceOfArgs(address)));
+        return this.tokenBalance(this.net.koin, address);
+    }
+    /** balance_of on any KCS-4 token contract, in the token's base units. */
+    async tokenBalance(contract, address) {
+        return decodeUint64Result(await this.read(contract, TOKEN_ENTRY.balance_of, encodeBalanceOfArgs(address)));
+    }
+    /** name, symbol and decimals of a KCS-4 token contract. Throws if the contract does not answer like a token. */
+    async tokenInfo(contract) {
+        const name = decodeStringResult(await this.read(contract, TOKEN_ENTRY.name));
+        const symbol = decodeStringResult(await this.read(contract, TOKEN_ENTRY.symbol));
+        const decimals = decodeDecimalsResult(await this.read(contract, TOKEN_ENTRY.decimals));
+        if (!symbol || decimals > 18)
+            throw new Error("this contract does not answer like a token");
+        return { name, symbol, decimals };
     }
     async mana(address) {
         return BigInt(await this.provider.getAccountRc(address));
@@ -81,14 +94,21 @@ export class Chain {
         const h = (await this.provider.getHeadInfo());
         return h.head_topology?.height ?? "0";
     }
-    /** Builds, signs with the ML-DSA key for the account's mode, checks the signature locally, submits. */
+    /**
+     * Builds a token transfer, signs it with the ML-DSA key for the account's mode, checks the signature
+     * locally, submits. `contract` is the token (KCS-4 `transfer` entry point); it defaults to KOIN, and any
+     * other token goes through exactly the same path with a different contract id.
+     */
     async sendKoin(opts) {
         const { from, to, valueBase, keys, mode } = opts;
+        const contract = opts.contract ?? this.net.koin;
         if (!isAddress(to))
             throw new Error("recipient is not a valid Koinos address");
+        if (!isAddress(contract))
+            throw new Error("token contract is not a valid Koinos address");
         if (valueBase <= 0n)
             throw new Error("amount must be positive");
-        const operation = callContractOperation(this.net.koin, TOKEN_ENTRY.transfer, encodeTransferArgs(from, to, valueBase));
+        const operation = callContractOperation(contract, TOKEN_ENTRY.transfer, encodeTransferArgs(from, to, valueBase));
         let rcLimit = opts.rcLimit;
         if (rcLimit === undefined) {
             // the mempool reserves each pending tx's rc_limit, so never ask for everything
