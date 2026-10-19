@@ -66,6 +66,19 @@ export declare class Chain {
         rcLimit?: bigint;
         contract?: string;
     }): Promise<SendResult>;
+    /**
+     * The one signing path: a single call_contract operation with pre-encoded arguments (a KCS-4 or KCS-5
+     * transfer, say), built, signed with the ML-DSA key for the account's mode, checked locally, submitted.
+     */
+    sendCall(opts: {
+        from: string;
+        contract: string;
+        entryPoint: number;
+        args: Uint8Array;
+        keys: PqKeys;
+        mode: AccountMode;
+        rcLimit?: bigint;
+    }): Promise<SendResult>;
     /** Resolves with the block height once the transaction is in a block (or throws on timeout). */
     waitMined(txId: string, timeoutMs?: number): Promise<string>;
     /**

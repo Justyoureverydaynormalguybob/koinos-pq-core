@@ -145,9 +145,20 @@ export class Chain {
     const { from, to, valueBase, keys, mode } = opts;
     const contract = opts.contract ?? this.net.koin;
     if (!isAddress(to)) throw new Error("recipient is not a valid Koinos address");
-    if (!isAddress(contract)) throw new Error("token contract is not a valid Koinos address");
     if (valueBase <= 0n) throw new Error("amount must be positive");
-    const operation = callContractOperation(contract, TOKEN_ENTRY.transfer, encodeTransferArgs(from, to, valueBase));
+    return this.sendCall({ from, contract, entryPoint: TOKEN_ENTRY.transfer, args: encodeTransferArgs(from, to, valueBase), keys, mode, rcLimit: opts.rcLimit });
+  }
+
+  /**
+   * The one signing path: a single call_contract operation with pre-encoded arguments (a KCS-4 or KCS-5
+   * transfer, say), built, signed with the ML-DSA key for the account's mode, checked locally, submitted.
+   */
+  async sendCall(opts: { from: string; contract: string; entryPoint: number; args: Uint8Array; keys: PqKeys; mode: AccountMode; rcLimit?: bigint }): Promise<SendResult> {
+    const { from, contract, entryPoint, args, keys, mode } = opts;
+    if (!isAddress(from)) throw new Error("sender is not a valid Koinos address");
+    if (!isAddress(contract)) throw new Error("contract is not a valid Koinos address");
+    if (!Number.isInteger(entryPoint) || entryPoint < 0 || entryPoint > 0xffffffff) throw new Error("bad entry point");
+    const operation = callContractOperation(contract, entryPoint, args);
 
     let rcLimit = opts.rcLimit;
     if (rcLimit === undefined) {
