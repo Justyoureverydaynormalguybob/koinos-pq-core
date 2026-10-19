@@ -48,3 +48,16 @@ describe("keys", () => {
     expect(a.getAddress()).not.toBe(deriveKeys(seed).address);
   });
 });
+
+describe("seed ownership (regression, 2026-10-19)", () => {
+  it("keys keep their own copy of the seed, so wiping the caller's buffer cannot change the bootstrap address", async () => {
+    const { deriveKeys, bootstrapSigner, ZERO_SEED_BOOTSTRAP_ADDRESS } = await import("../src/keys.js");
+    const buf = new Uint8Array(32).fill(7);
+    const keys = deriveKeys(buf);
+    const before = bootstrapSigner(keys.seed).getAddress();
+    buf.fill(0);
+    expect(bootstrapSigner(keys.seed).getAddress()).toBe(before);
+    expect(before).not.toBe(ZERO_SEED_BOOTSTRAP_ADDRESS);
+    expect(bootstrapSigner(new Uint8Array(32)).getAddress()).toBe(ZERO_SEED_BOOTSTRAP_ADDRESS);
+  });
+});

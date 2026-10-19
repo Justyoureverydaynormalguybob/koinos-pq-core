@@ -57,8 +57,13 @@ export function deriveKeys(seed) {
     const k = ml_dsa44.keygen(seed);
     if (k.publicKey.length !== PK_BYTES || k.secretKey.length !== SK_BYTES)
         throw new Error("unexpected ML-DSA-44 key size");
-    return { seed, publicKey: k.publicKey, secretKey: k.secretKey, address: utils.bitcoinAddress(k.publicKey) };
+    // Own copy of the seed: callers wipe their buffer after deriving, and bootstrapSigner(keys.seed) must
+    // keep working. Sharing the buffer made every in-session wallet compute the bootstrap address of 32
+    // zero bytes (14PpxNmUVA7qeAw1cyASMfJFUd2xDkPUBR on every network). Found 2026-10-19.
+    return { seed: Uint8Array.from(seed), publicKey: k.publicKey, secretKey: k.secretKey, address: utils.bitcoinAddress(k.publicKey) };
 }
+/** The bootstrap address every pre-fix wallet derived in the session that created it (seed of 32 zero bytes). */
+export const ZERO_SEED_BOOTSTRAP_ADDRESS = "14PpxNmUVA7qeAw1cyASMfJFUd2xDkPUBR";
 /** Address for any ML-DSA-44 public key, the same bytes the node derives. */
 export function addressOf(publicKey) {
     return utils.bitcoinAddress(publicKey);

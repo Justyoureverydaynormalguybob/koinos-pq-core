@@ -19,6 +19,8 @@ export declare function seedToMnemonic(seed: Uint8Array): string;
 /** Accepts the CLI's 64-hex seed or a 24-word phrase. */
 export declare function parseSeedInput(input: string): Uint8Array;
 export declare function deriveKeys(seed: Uint8Array): PqKeys;
+/** The bootstrap address every pre-fix wallet derived in the session that created it (seed of 32 zero bytes). */
+export declare const ZERO_SEED_BOOTSTRAP_ADDRESS = "14PpxNmUVA7qeAw1cyASMfJFUd2xDkPUBR";
 /** Address for any ML-DSA-44 public key, the same bytes the node derives. */
 export declare function addressOf(publicKey: Uint8Array): string;
 /**
