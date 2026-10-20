@@ -12,7 +12,9 @@ export const NETWORKS = {
         // KOIN moved to this contract; the original 15DJN4a8SgrbGhhGksSBASiSYjGnMU8dGL still answers name/symbol but
         // every state read on it fails with "user code cannot access system space" (checked 2026-10-18).
         koin: "19GYjDBVXU7keLbYvMLazsGQn3GTWHjHkK",
-        explorerTx: (id) => `https://koinosblocks.com/tx/${id}`,
+        // koinosscan.com (mainnet only as of 2026-10-20): /tx/<id>, /address/<account>
+        explorerTx: (id) => `https://koinosscan.com/tx/${id}`,
+        explorerAddress: (a) => `https://koinosscan.com/address/${a}`,
         autoBlocks: true,
     },
     testnet: {
@@ -20,7 +22,9 @@ export const NETWORKS = {
         rpc: ["https://testnet.koinosfoundation.org/jsonrpc"],
         rest: "https://testnet.koinosfoundation.org/v1",
         koin: "1FaSvLjQJsCJKq5ybmGsMMQs8RQYyVv8ju",
+        // koinosscan has no Harbinger view; koinosblocks still does
         explorerTx: (id) => `https://harbinger.koinosblocks.com/tx/${id}`,
+        explorerAddress: (a) => `https://harbinger.koinosblocks.com/address/${a}`,
         autoBlocks: true,
     },
     devnet: {
@@ -29,6 +33,7 @@ export const NETWORKS = {
         rest: null,
         koin: "1BRmrUgtSQVUggoeE9weG4f7nidyydnYfQ",
         explorerTx: null,
+        explorerAddress: null,
         autoBlocks: false,
     },
 };

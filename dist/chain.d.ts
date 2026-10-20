@@ -8,6 +8,8 @@ export interface Network {
     rest: string | null;
     koin: string;
     explorerTx: ((id: string) => string) | null;
+    /** account page on the explorer, or null */
+    explorerAddress: ((address: string) => string) | null;
     /** blocks arrive on their own (false on the hand-driven devnet) */
     autoBlocks: boolean;
 }
