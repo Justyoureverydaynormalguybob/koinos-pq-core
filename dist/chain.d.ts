@@ -4,6 +4,8 @@ import { type AccountMode } from "./sign.js";
 export interface Network {
     name: string;
     rpc: string[];
+    /** the chain id every transaction must carry; null only on a devnet, whose id is read from the node */
+    chainId: string | null;
     /** REST base (history is read over JSON-RPC instead; REST sends no CORS headers), or null */
     rest: string | null;
     koin: string;
@@ -53,6 +55,11 @@ export declare class Chain {
         decimals: number;
     }>;
     mana(address: string): Promise<bigint>;
+    /**
+     * The pinned chain id for this network, so a hostile or misconfigured node cannot have the wallet sign
+     * for another chain (the same key has the same address on every Koinos network). Devnets have no pin.
+     */
+    chainId(): Promise<string>;
     headHeight(): Promise<string>;
     /**
      * Builds a token transfer, signs it with the ML-DSA key for the account's mode, checks the signature
@@ -89,4 +96,6 @@ export declare class Chain {
      */
     history(address: string, limit?: number): Promise<HistoryItem[]>;
 }
+/** Removes control, format (bidi, zero-width) and private-use characters, collapses whitespace, caps length. */
+export declare function cleanLabel(s: string, max: number): string;
 export declare function short(a: string | undefined): string;

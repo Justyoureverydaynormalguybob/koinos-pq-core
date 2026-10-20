@@ -8,6 +8,7 @@ export const NETWORKS = {
     mainnet: {
         name: "mainnet",
         rpc: ["https://api.koinos.io/jsonrpc"],
+        chainId: "EiBZK_GGVP0H_fXVAM3j6EAuz3-B-l3ejxRSewi7qIBfSA==",
         rest: "https://api.koinos.io/v1",
         // KOIN moved to this contract; the original 15DJN4a8SgrbGhhGksSBASiSYjGnMU8dGL still answers name/symbol but
         // every state read on it fails with "user code cannot access system space" (checked 2026-10-18).
@@ -20,6 +21,7 @@ export const NETWORKS = {
     testnet: {
         name: "testnet",
         rpc: ["https://testnet.koinosfoundation.org/jsonrpc"],
+        chainId: "EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==", // Harbinger, after its 2026 reset
         rest: "https://testnet.koinosfoundation.org/v1",
         koin: "1FaSvLjQJsCJKq5ybmGsMMQs8RQYyVv8ju",
         // koinosscan has no Harbinger view; koinosblocks still does
@@ -30,6 +32,7 @@ export const NETWORKS = {
     devnet: {
         name: "devnet",
         rpc: ["http://127.0.0.1:8080/"],
+        chainId: null,
         rest: null,
         koin: "1BRmrUgtSQVUggoeE9weG4f7nidyydnYfQ",
         explorerTx: null,
@@ -85,8 +88,10 @@ export class Chain {
     }
     /** name, symbol and decimals of a KCS-4 token contract. Throws if the contract does not answer like a token. */
     async tokenInfo(contract) {
-        const name = decodeStringResult(await this.read(contract, TOKEN_ENTRY.name));
-        const symbol = decodeStringResult(await this.read(contract, TOKEN_ENTRY.symbol));
+        // Anyone can deploy a token with any name. Strip control, format and bidi characters (so a symbol
+        // cannot reorder the amount next to it or hide in whitespace), trim, and cap the lengths.
+        const name = cleanLabel(decodeStringResult(await this.read(contract, TOKEN_ENTRY.name)), 40);
+        const symbol = cleanLabel(decodeStringResult(await this.read(contract, TOKEN_ENTRY.symbol)), 12);
         const decimals = decodeDecimalsResult(await this.read(contract, TOKEN_ENTRY.decimals));
         if (!symbol || decimals > 18)
             throw new Error("this contract does not answer like a token");
@@ -94,6 +99,17 @@ export class Chain {
     }
     async mana(address) {
         return BigInt(await this.provider.getAccountRc(address));
+    }
+    /**
+     * The pinned chain id for this network, so a hostile or misconfigured node cannot have the wallet sign
+     * for another chain (the same key has the same address on every Koinos network). Devnets have no pin.
+     */
+    async chainId() {
+        const live = await this.provider.getChainId();
+        if (this.net.chainId !== null && live !== this.net.chainId) {
+            throw new Error(`the ${this.net.name} node reports chain id ${live}, expected ${this.net.chainId}; refusing to use it`);
+        }
+        return this.net.chainId ?? live;
     }
     async headHeight() {
         const h = (await this.provider.getHeadInfo());
@@ -135,7 +151,7 @@ export class Chain {
             if (rcLimit <= 0n)
                 throw new Error("this account has no mana");
         }
-        const tx = { header: { payer: from, rc_limit: rcLimit.toString() }, operations: [operation], signatures: [] };
+        const tx = { header: { payer: from, rc_limit: rcLimit.toString(), chain_id: await this.chainId() }, operations: [operation], signatures: [] };
         await Transaction.prepareTransaction(tx, this.provider, from);
         const txId = tx.id;
         const entry = signTxId(txId, keys, mode);
@@ -242,6 +258,10 @@ function summarizeHistory(row, me) {
     if (reverted)
         summary += " (reverted)";
     return { seq, txId, blockHeight: block?.header?.height ?? null, summary, contract, valueBase, direction, counterparty, reverted };
+}
+/** Removes control, format (bidi, zero-width) and private-use characters, collapses whitespace, caps length. */
+export function cleanLabel(s, max) {
+    return s.replace(/[\p{Cc}\p{Cf}\p{Co}\p{Cn}]/gu, "").replace(/\s+/g, " ").trim().slice(0, max);
 }
 export function short(a) {
     return a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "?";

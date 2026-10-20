@@ -61,3 +61,15 @@ describe("seed ownership (regression, 2026-10-19)", () => {
     expect(bootstrapSigner(new Uint8Array(32)).getAddress()).toBe(ZERO_SEED_BOOTSTRAP_ADDRESS);
   });
 });
+
+describe("chain hygiene (2026-10-20 review)", () => {
+  it("pins the mainnet and Harbinger chain ids and strips bidi/control characters from token labels", async () => {
+    const { NETWORKS, cleanLabel } = await import("../src/chain.js");
+    expect(NETWORKS.mainnet!.chainId).toBe("EiBZK_GGVP0H_fXVAM3j6EAuz3-B-l3ejxRSewi7qIBfSA==");
+    expect(NETWORKS.testnet!.chainId).toBe("EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==");
+    expect(NETWORKS.devnet!.chainId).toBeNull();
+    expect(cleanLabel("KO‮IN​  x", 12)).toBe("KOIN x");
+    expect(cleanLabel("   ", 12)).toBe("");
+    expect(cleanLabel("a".repeat(50), 12)).toHaveLength(12);
+  });
+});

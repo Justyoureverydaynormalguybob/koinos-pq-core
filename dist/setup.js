@@ -118,7 +118,7 @@ export async function setupPqwalletAccount(chain, keys, onStatus) {
         const sent = await withManaHoldRetry(async () => {
             if ((await pqwalletInfo(chain, account)).deployed)
                 return null; // an earlier attempt landed meanwhile
-            const tx = { header: { payer: account, rc_limit: costs.requiredMana.toString() }, operations, signatures: [] };
+            const tx = { header: { payer: account, rc_limit: costs.requiredMana.toString(), chain_id: await chain.chainId() }, operations, signatures: [] };
             await Transaction.prepareTransaction(tx, chain.provider, account);
             const signed = await signer.signTransaction(tx);
             await chain.provider.sendTransaction(signed);
@@ -139,7 +139,7 @@ export async function setupPqwalletAccount(chain, keys, onStatus) {
         onStatus({ step: "registering", message: "Registering the post-quantum key" });
         const proof = proofOfPossession(utils.decodeBase58(account), keys);
         const operation = callContractOperation(account, PQWALLET_ENTRY.set_public_key, encodeSetPublicKeyArgs(keys.publicKey, proof));
-        const tx = { header: { payer: account, rc_limit: costs.registerRc.toString() }, operations: [operation], signatures: [] };
+        const tx = { header: { payer: account, rc_limit: costs.registerRc.toString(), chain_id: await chain.chainId() }, operations: [operation], signatures: [] };
         await Transaction.prepareTransaction(tx, chain.provider, account);
         const signed = await signer.signTransaction(tx); // bootstrap signature: the contract's legacy fallback, valid only before a key is registered
         let alreadyRegistered = false;
