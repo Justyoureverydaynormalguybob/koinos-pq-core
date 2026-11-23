@@ -40,6 +40,11 @@ export interface HistoryItem {
     valueBase: string | null;
     direction: "in" | "out" | null;
     counterparty: string | null;
+    /**
+     * KOIN this address burned for VHP through proof of burn, in base units (the same amount of VHP was minted
+     * in the same transaction), or null. Not a transfer: contract, valueBase and direction stay null.
+     */
+    burnedForVhp: string | null;
     reverted: boolean;
 }
 export declare class Chain {
@@ -135,6 +140,7 @@ export declare class Chain {
      */
     history(address: string, limit?: number): Promise<HistoryItem[]>;
 }
+export declare function summarizeHistory(row: Record<string, unknown>, me: string, net?: Pick<Network, "koin" | "vhp">): HistoryItem;
 /** Removes control, format (bidi, zero-width) and private-use characters, collapses whitespace, caps length. */
 export declare function cleanLabel(s: string, max: number): string;
 export declare function short(a: string | undefined): string;

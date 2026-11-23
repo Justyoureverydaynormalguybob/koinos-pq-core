@@ -3,7 +3,7 @@
 // we need are encoded by abi-lite, and transactions themselves by koilib's static protobuf modules.
 import { Provider, Transaction, utils } from "koilib";
 import {
-  callContractOperation, decodeBoolResult, decodeDecimalsResult, decodeStringResult, decodeUint64Result, encodeBalanceOfArgs, encodeBurnArgs,
+  callContractOperation, decodeBoolResult, decodeFields, decodeDecimalsResult, decodeStringResult, decodeUint64Result, encodeBalanceOfArgs, encodeBurnArgs,
   encodeGetAllowedCallerArgs, encodeSetAllowedCallerArgs, encodeTransferArgs, POB_ENTRY, PQWALLET_ENTRY, TOKEN_ENTRY,
 } from "./abi-lite.js";
 import type { PqKeys } from "./keys.js";
@@ -118,6 +118,11 @@ export interface HistoryItem {
   valueBase: string | null;
   direction: "in" | "out" | null;
   counterparty: string | null;
+  /**
+   * KOIN this address burned for VHP through proof of burn, in base units (the same amount of VHP was minted
+   * in the same transaction), or null. Not a transfer: contract, valueBase and direction stay null.
+   */
+  burnedForVhp: string | null;
   reverted: boolean;
 }
 
@@ -295,7 +300,7 @@ export class Chain {
     const r = (await this.provider.call("account_history.get_account_history", { address, limit, ascending: false, irreversible: false })) as {
       values?: Array<Record<string, unknown>>;
     };
-    return (r.values ?? []).map((row) => summarizeHistory(row, address));
+    return (r.values ?? []).map((row) => summarizeHistory(row, address, this.net));
   }
 }
 
@@ -333,7 +338,39 @@ function decodeTransferEvent(data: string): { from?: string; to?: string; value?
   return out;
 }
 
-function summarizeHistory(row: Record<string, unknown>, me: string): HistoryItem {
+// token burn_event { bytes from = 1; uint64 value = 2 } and mint_event { bytes to = 1; uint64 value = 2 }
+function decodeBurnOrMintEvent(data: unknown): { who?: string; value?: string } {
+  if (typeof data !== "string") {
+    const o = (data ?? {}) as { from?: string; to?: string; value?: string };
+    return { who: o.from ?? o.to, value: o.value };
+  }
+  const f = decodeFields(utils.decodeBase64url(data));
+  const who = f.get(1)?.[0], value = f.get(2)?.[0];
+  return { who: who instanceof Uint8Array ? utils.encodeBase58(who) : undefined, value: typeof value === "bigint" ? value.toString() : undefined };
+}
+
+/**
+ * A proof-of-burn conversion by `me`: KOIN's burn_event from this address and a VHP mint_event of the same
+ * amount in the same receipt (recorded on mainnet 2026-11-23: "token.burn_event" from the KOIN contract,
+ * "token.mint_event" from the VHP contract). Returns the amount in base units, or null.
+ */
+function burnedForVhp(events: Array<Record<string, unknown>>, me: string, net: Pick<Network, "koin" | "vhp">): string | null {
+  if (!net.vhp) return null;
+  const read = (suffix: RegExp, source: string) =>
+    events.flatMap((ev) => {
+      if (typeof ev.name !== "string" || !suffix.test(ev.name) || ev.source !== source) return [];
+      try {
+        return [decodeBurnOrMintEvent(ev.data)];
+      } catch {
+        return [];
+      }
+    });
+  const minted = new Set(read(/(^|\.)mint_event$/, net.vhp).map((m) => m.value));
+  const burn = read(/(^|\.)burn_event$/, net.koin).find((b) => b.who === me && b.value !== undefined && minted.has(b.value));
+  return burn?.value ?? null;
+}
+
+export function summarizeHistory(row: Record<string, unknown>, me: string, net?: Pick<Network, "koin" | "vhp">): HistoryItem {
   const seq = String(row.seq_num ?? "");
   const trx = row.trx as { transaction?: { id?: string }; receipt?: { events?: Array<Record<string, unknown>>; reverted?: boolean } } | undefined;
   const block = row.block as { header?: { height?: string } } | undefined;
@@ -363,9 +400,12 @@ function summarizeHistory(row: Record<string, unknown>, me: string): HistoryItem
     valueBase = d.value ?? null;
     break;
   }
+  // only when no transfer touched this address: a burn says more than "transaction"
+  const burned = !direction && net ? burnedForVhp(events, me, net) : null;
+  if (burned) summary = `burned ${formatKoin(BigInt(burned))} for VHP`;
   const reverted = !!trx?.receipt?.reverted;
   if (reverted) summary += " (reverted)";
-  return { seq, txId, blockHeight: block?.header?.height ?? null, summary, contract, valueBase, direction, counterparty, reverted };
+  return { seq, txId, blockHeight: block?.header?.height ?? null, summary, contract, valueBase, direction, counterparty, burnedForVhp: burned, reverted };
 }
 
 /** Removes control, format (bidi, zero-width) and private-use characters, collapses whitespace, caps length. */

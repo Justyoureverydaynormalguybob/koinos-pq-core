@@ -2,7 +2,7 @@
 // No koilib Contract/Serializer here (they compile encoders with `new Function`); the few messages
 // we need are encoded by abi-lite, and transactions themselves by koilib's static protobuf modules.
 import { Provider, Transaction, utils } from "koilib";
-import { callContractOperation, decodeBoolResult, decodeDecimalsResult, decodeStringResult, decodeUint64Result, encodeBalanceOfArgs, encodeBurnArgs, encodeGetAllowedCallerArgs, encodeSetAllowedCallerArgs, encodeTransferArgs, POB_ENTRY, PQWALLET_ENTRY, TOKEN_ENTRY, } from "./abi-lite.js";
+import { callContractOperation, decodeBoolResult, decodeFields, decodeDecimalsResult, decodeStringResult, decodeUint64Result, encodeBalanceOfArgs, encodeBurnArgs, encodeGetAllowedCallerArgs, encodeSetAllowedCallerArgs, encodeTransferArgs, POB_ENTRY, PQWALLET_ENTRY, TOKEN_ENTRY, } from "./abi-lite.js";
 import { signTxId, verifyEntry } from "./sign.js";
 export const NETWORKS = {
     mainnet: {
@@ -240,7 +240,7 @@ export class Chain {
      */
     async history(address, limit = 20) {
         const r = (await this.provider.call("account_history.get_account_history", { address, limit, ascending: false, irreversible: false }));
-        return (r.values ?? []).map((row) => summarizeHistory(row, address));
+        return (r.values ?? []).map((row) => summarizeHistory(row, address, this.net));
     }
 }
 // token transfer_event { bytes from = 1; bytes to = 2; uint64 value = 3 }, base64url on the JSON-RPC
@@ -283,7 +283,39 @@ function decodeTransferEvent(data) {
     }
     return out;
 }
-function summarizeHistory(row, me) {
+// token burn_event { bytes from = 1; uint64 value = 2 } and mint_event { bytes to = 1; uint64 value = 2 }
+function decodeBurnOrMintEvent(data) {
+    if (typeof data !== "string") {
+        const o = (data ?? {});
+        return { who: o.from ?? o.to, value: o.value };
+    }
+    const f = decodeFields(utils.decodeBase64url(data));
+    const who = f.get(1)?.[0], value = f.get(2)?.[0];
+    return { who: who instanceof Uint8Array ? utils.encodeBase58(who) : undefined, value: typeof value === "bigint" ? value.toString() : undefined };
+}
+/**
+ * A proof-of-burn conversion by `me`: KOIN's burn_event from this address and a VHP mint_event of the same
+ * amount in the same receipt (recorded on mainnet 2026-11-23: "token.burn_event" from the KOIN contract,
+ * "token.mint_event" from the VHP contract). Returns the amount in base units, or null.
+ */
+function burnedForVhp(events, me, net) {
+    if (!net.vhp)
+        return null;
+    const read = (suffix, source) => events.flatMap((ev) => {
+        if (typeof ev.name !== "string" || !suffix.test(ev.name) || ev.source !== source)
+            return [];
+        try {
+            return [decodeBurnOrMintEvent(ev.data)];
+        }
+        catch {
+            return [];
+        }
+    });
+    const minted = new Set(read(/(^|\.)mint_event$/, net.vhp).map((m) => m.value));
+    const burn = read(/(^|\.)burn_event$/, net.koin).find((b) => b.who === me && b.value !== undefined && minted.has(b.value));
+    return burn?.value ?? null;
+}
+export function summarizeHistory(row, me, net) {
     const seq = String(row.seq_num ?? "");
     const trx = row.trx;
     const block = row.block;
@@ -318,10 +350,14 @@ function summarizeHistory(row, me) {
         valueBase = d.value ?? null;
         break;
     }
+    // only when no transfer touched this address: a burn says more than "transaction"
+    const burned = !direction && net ? burnedForVhp(events, me, net) : null;
+    if (burned)
+        summary = `burned ${formatKoin(BigInt(burned))} for VHP`;
     const reverted = !!trx?.receipt?.reverted;
     if (reverted)
         summary += " (reverted)";
-    return { seq, txId, blockHeight: block?.header?.height ?? null, summary, contract, valueBase, direction, counterparty, reverted };
+    return { seq, txId, blockHeight: block?.header?.height ?? null, summary, contract, valueBase, direction, counterparty, burnedForVhp: burned, reverted };
 }
 /** Removes control, format (bidi, zero-width) and private-use characters, collapses whitespace, caps length. */
 export function cleanLabel(s, max) {
