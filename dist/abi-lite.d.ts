@@ -46,6 +46,17 @@ export interface PqwalletInfoResult {
 }
 /** get_info_result { string scheme = 1; uint32 public_key_bytes = 2; uint32 signature_bytes = 3; string context = 4; bool key_registered = 5; } */
 export declare function decodeGetInfoResult(b: Uint8Array): PqwalletInfoResult;
+/** set_allowed_caller_arguments { bytes contract = 1; bool allowed = 2; } (a false bool is left out, as proto3 does) */
+export declare function encodeSetAllowedCallerArgs(contract: string, allowed: boolean): Uint8Array;
+/** get_allowed_caller_arguments { bytes contract = 1; } */
+export declare function encodeGetAllowedCallerArgs(contract: string): Uint8Array;
+/** get_allowed_caller_result { bool value = 1; } */
+export declare function decodeBoolResult(b: Uint8Array): boolean;
+export declare const POB_ENTRY: {
+    readonly burn: 2241834181;
+};
+/** burn_arguments { uint64 token_amount = 1; bytes burn_address = 2; bytes vhp_address = 3; } */
+export declare function encodeBurnArgs(tokenAmount: bigint, burnAddress: string, vhpAddress: string): Uint8Array;
 /** A call_contract operation in koilib's JSON shape, with the args already encoded. */
 export declare function callContractOperation(contractId: string, entryPoint: number, args: Uint8Array): {
     call_contract: {

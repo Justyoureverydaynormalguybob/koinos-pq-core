@@ -166,6 +166,29 @@ export function decodeGetInfoResult(b: Uint8Array): PqwalletInfoResult {
   };
 }
 
+/** set_allowed_caller_arguments { bytes contract = 1; bool allowed = 2; } (a false bool is left out, as proto3 does) */
+export function encodeSetAllowedCallerArgs(contract: string, allowed: boolean): Uint8Array {
+  return concat([fieldBytes(1, addr(contract)), allowed ? fieldVarint(2, 1) : new Uint8Array(0)]);
+}
+/** get_allowed_caller_arguments { bytes contract = 1; } */
+export function encodeGetAllowedCallerArgs(contract: string): Uint8Array {
+  return fieldBytes(1, addr(contract));
+}
+/** get_allowed_caller_result { bool value = 1; } */
+export function decodeBoolResult(b: Uint8Array): boolean {
+  return num(decodeFields(b).get(1)?.[0]) !== 0n;
+}
+
+// ---- koinos.contracts.pob (proof of burn): KOIN in, the same amount of VHP out ----
+export const POB_ENTRY = {
+  burn: 0x859facc5,
+} as const;
+
+/** burn_arguments { uint64 token_amount = 1; bytes burn_address = 2; bytes vhp_address = 3; } */
+export function encodeBurnArgs(tokenAmount: bigint, burnAddress: string, vhpAddress: string): Uint8Array {
+  return concat([fieldVarint(1, uint64(tokenAmount)), fieldBytes(2, addr(burnAddress)), fieldBytes(3, addr(vhpAddress))]);
+}
+
 /** A call_contract operation in koilib's JSON shape, with the args already encoded. */
 export function callContractOperation(contractId: string, entryPoint: number, args: Uint8Array): { call_contract: { contract_id: string; entry_point: number; args: string } } {
   return { call_contract: { contract_id: contractId, entry_point: entryPoint, args: utils.encodeBase64url(args) } };

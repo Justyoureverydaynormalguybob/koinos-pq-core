@@ -4,6 +4,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import {
   decodeDecimalsResult, decodeGetInfoResult, decodeGetPublicKeyResult, decodeStringResult, decodeUint64Result,
   encodeBalanceOfArgs, encodeMintArgs, encodeSetPublicKeyArgs, encodeTransferArgs, TOKEN_ENTRY, PQWALLET_ENTRY,
+  decodeBoolResult, encodeBurnArgs, encodeGetAllowedCallerArgs, encodeSetAllowedCallerArgs, POB_ENTRY,
 } from "../src/abi-lite";
 import { pqwalletAbi } from "../src/contract";
 
@@ -47,6 +48,31 @@ describe("abi-lite agrees with koilib's serializer", () => {
     expect(decodeGetPublicKeyResult(new Uint8Array(0))).toBeNull();
   });
 
+  it("allowed-caller arguments and results match the contract ABI types", async () => {
+    const pq = new Serializer((pqwalletAbi.koilib_types ?? pqwalletAbi.types) as never);
+    for (const allowed of [true, false]) {
+      expect(hex(encodeSetAllowedCallerArgs(A, allowed))).toBe(hex(await pq.serialize({ contract: A, allowed }, "set_allowed_caller_arguments")));
+    }
+    expect(hex(encodeGetAllowedCallerArgs(B))).toBe(hex(await pq.serialize({ contract: B }, "get_allowed_caller_arguments")));
+    expect(decodeBoolResult(await pq.serialize({ value: true }, "get_allowed_caller_result"))).toBe(true);
+    expect(decodeBoolResult(await pq.serialize({ value: false }, "get_allowed_caller_result"))).toBe(false);
+    expect(decodeBoolResult(new Uint8Array(0))).toBe(false);
+  });
+
+  it("proof-of-burn arguments encode as koinos.contracts.pob.burn_arguments", async () => {
+    // pob.proto: uint64 token_amount = 1; bytes burn_address = 2 (ADDRESS); bytes vhp_address = 3 (ADDRESS)
+    const pob = new Serializer({ nested: { burn_arguments: { fields: {
+      token_amount: { type: "uint64", id: 1, options: { jstype: "JS_STRING" } },
+      burn_address: { type: "bytes", id: 2, options: { "(koinos.btype)": "ADDRESS" } },
+      vhp_address: { type: "bytes", id: 3, options: { "(koinos.btype)": "ADDRESS" } },
+    } } } } as never);
+    for (const value of ["1", "100000000", "18446744073709551615"]) {
+      expect(hex(encodeBurnArgs(BigInt(value), A, B))).toBe(hex(await pob.serialize({ token_amount: value, burn_address: A, vhp_address: B }, "burn_arguments")));
+    }
+    expect(() => encodeBurnArgs(-1n, A, B)).toThrow();
+    expect(POB_ENTRY.burn).toBe(0x859facc5); // koinos-contracts-as contracts/pob/abi/pob.abi
+  });
+
   it("entry points match the ABIs", () => {
     const ep = (m: Record<string, unknown> | undefined) => Number(m?.entry_point ?? m?.entryPoint ?? m?.["entry-point"]);
     const tm = (utils.tokenAbi.methods ?? {}) as Record<string, Record<string, unknown>>;
@@ -57,5 +83,7 @@ describe("abi-lite agrees with koilib's serializer", () => {
     expect(ep(pm.set_public_key)).toBe(PQWALLET_ENTRY.set_public_key);
     expect(ep(pm.get_info)).toBe(PQWALLET_ENTRY.get_info);
     expect(ep(pm.get_public_key)).toBe(PQWALLET_ENTRY.get_public_key);
+    expect(ep(pm.set_allowed_caller)).toBe(PQWALLET_ENTRY.set_allowed_caller);
+    expect(ep(pm.get_allowed_caller)).toBe(PQWALLET_ENTRY.get_allowed_caller);
   });
 });

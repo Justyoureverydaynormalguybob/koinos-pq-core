@@ -9,6 +9,9 @@ export interface Network {
     /** REST base (history is read over JSON-RPC instead; REST sends no CORS headers), or null */
     rest: string | null;
     koin: string;
+    /** VHP token and the proof-of-burn contract (burn KOIN for VHP), or null where the chain has none we know of */
+    vhp: string | null;
+    pob: string | null;
     explorerTx: ((id: string) => string) | null;
     /** account page on the explorer, or null */
     explorerAddress: ((address: string) => string) | null;
@@ -75,15 +78,51 @@ export declare class Chain {
         rcLimit?: bigint;
         contract?: string;
     }): Promise<SendResult>;
+    /** Is `contract` on a pqwallet account's allowed list (may it use the account's authority from a nested call)? */
+    allowedCaller(account: string, contract: string): Promise<boolean>;
     /**
-     * The one signing path: a single call_contract operation with pre-encoded arguments (a KCS-4 or KCS-5
-     * transfer, say), built, signed with the ML-DSA key for the account's mode, checked locally, submitted.
+     * Burns KOIN for the same amount of VHP through the chain's proof-of-burn contract. One-way: VHP only
+     * becomes KOIN again by producing blocks.
+     *
+     * The burn reaches KOIN through the PoB contract, a nested call, which a pqwallet account refuses unless
+     * PoB is on its allowed list. Leaving PoB there would let any contract reached by a later signed
+     * transaction burn this account's KOIN into VHP at an address of its choosing, so the permission is
+     * given and taken back inside the same transaction: allow, burn, forbid. All three apply or none does.
+     * An account that already allows PoB (the owner's own choice) is left as it is.
+     */
+    burnKoin(opts: {
+        from: string;
+        valueBase: bigint;
+        keys: PqKeys;
+        mode: AccountMode;
+        vhpAddress?: string;
+        rcLimit?: bigint;
+    }): Promise<SendResult>;
+    /**
+     * A single call_contract operation with pre-encoded arguments (a KCS-4 or KCS-5 transfer, say), through
+     * the one signing path below.
      */
     sendCall(opts: {
         from: string;
         contract: string;
         entryPoint: number;
         args: Uint8Array;
+        keys: PqKeys;
+        mode: AccountMode;
+        rcLimit?: bigint;
+    }): Promise<SendResult>;
+    /**
+     * The one signing path: call_contract operations with pre-encoded arguments, in order, in one transaction
+     * (all apply or none does), built, signed with the ML-DSA key for the account's mode, checked locally,
+     * submitted.
+     */
+    sendCalls(opts: {
+        from: string;
+        operations: Array<{
+            contract: string;
+            entryPoint: number;
+            args: Uint8Array;
+        }>;
         keys: PqKeys;
         mode: AccountMode;
         rcLimit?: bigint;

@@ -2,7 +2,10 @@
 // No koilib Contract/Serializer here (they compile encoders with `new Function`); the few messages
 // we need are encoded by abi-lite, and transactions themselves by koilib's static protobuf modules.
 import { Provider, Transaction, utils } from "koilib";
-import { callContractOperation, decodeDecimalsResult, decodeStringResult, decodeUint64Result, encodeBalanceOfArgs, encodeTransferArgs, TOKEN_ENTRY } from "./abi-lite.js";
+import {
+  callContractOperation, decodeBoolResult, decodeDecimalsResult, decodeStringResult, decodeUint64Result, encodeBalanceOfArgs, encodeBurnArgs,
+  encodeGetAllowedCallerArgs, encodeSetAllowedCallerArgs, encodeTransferArgs, POB_ENTRY, PQWALLET_ENTRY, TOKEN_ENTRY,
+} from "./abi-lite.js";
 import type { PqKeys } from "./keys.js";
 import { signTxId, verifyEntry, type AccountMode } from "./sign.js";
 
@@ -14,6 +17,9 @@ export interface Network {
   /** REST base (history is read over JSON-RPC instead; REST sends no CORS headers), or null */
   rest: string | null;
   koin: string;
+  /** VHP token and the proof-of-burn contract (burn KOIN for VHP), or null where the chain has none we know of */
+  vhp: string | null;
+  pob: string | null;
   explorerTx: ((id: string) => string) | null;
   /** account page on the explorer, or null */
   explorerAddress: ((address: string) => string) | null;
@@ -30,6 +36,9 @@ export const NETWORKS: Record<string, Network> = {
     // KOIN moved to this contract; the original 15DJN4a8SgrbGhhGksSBASiSYjGnMU8dGL still answers name/symbol but
     // every state read on it fails with "user code cannot access system space" (checked 2026-10-18).
     koin: "19GYjDBVXU7keLbYvMLazsGQn3GTWHjHkK",
+    // both as the node's get_contract_address system call names them (checked 2026-11-23)
+    vhp: "12Y5vW6gk8GceH53YfRkRre2Rrcsgw7Naq",
+    pob: "159myq5YUhhoVWu3wsHKHiJYKPKGUrGiyv",
     // koinosscan.com (mainnet only as of 2026-10-20): /tx/<id>, /address/<account>
     explorerTx: (id) => `https://koinosscan.com/tx/${id}`,
     explorerAddress: (a) => `https://koinosscan.com/address/${a}`,
@@ -41,6 +50,8 @@ export const NETWORKS: Record<string, Network> = {
     chainId: "EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==", // Harbinger, after its 2026 reset
     rest: "https://testnet.koinosfoundation.org/v1",
     koin: "1FaSvLjQJsCJKq5ybmGsMMQs8RQYyVv8ju",
+    vhp: "17n12ktwN79sR6ia9DDgCfmw77EgpbTyBi",
+    pob: "1MAbK5pYkhp9yHnfhYamC3tfSLmVRTDjd9",
     // koinosscan has no Harbinger view; koinosblocks still does
     explorerTx: (id) => `https://harbinger.koinosblocks.com/tx/${id}`,
     explorerAddress: (a) => `https://harbinger.koinosblocks.com/address/${a}`,
@@ -52,6 +63,8 @@ export const NETWORKS: Record<string, Network> = {
     chainId: null,
     rest: null,
     koin: "1BRmrUgtSQVUggoeE9weG4f7nidyydnYfQ",
+    vhp: null,
+    pob: null,
     explorerTx: null,
     explorerAddress: null,
     autoBlocks: false,
@@ -175,16 +188,73 @@ export class Chain {
     return this.sendCall({ from, contract, entryPoint: TOKEN_ENTRY.transfer, args: encodeTransferArgs(from, to, valueBase), keys, mode, rcLimit: opts.rcLimit });
   }
 
+  /** Is `contract` on a pqwallet account's allowed list (may it use the account's authority from a nested call)? */
+  async allowedCaller(account: string, contract: string): Promise<boolean> {
+    return decodeBoolResult(await this.read(account, PQWALLET_ENTRY.get_allowed_caller, encodeGetAllowedCallerArgs(contract)));
+  }
+
   /**
-   * The one signing path: a single call_contract operation with pre-encoded arguments (a KCS-4 or KCS-5
-   * transfer, say), built, signed with the ML-DSA key for the account's mode, checked locally, submitted.
+   * Burns KOIN for the same amount of VHP through the chain's proof-of-burn contract. One-way: VHP only
+   * becomes KOIN again by producing blocks.
+   *
+   * The burn reaches KOIN through the PoB contract, a nested call, which a pqwallet account refuses unless
+   * PoB is on its allowed list. Leaving PoB there would let any contract reached by a later signed
+   * transaction burn this account's KOIN into VHP at an address of its choosing, so the permission is
+   * given and taken back inside the same transaction: allow, burn, forbid. All three apply or none does.
+   * An account that already allows PoB (the owner's own choice) is left as it is.
+   */
+  async burnKoin(opts: { from: string; valueBase: bigint; keys: PqKeys; mode: AccountMode; vhpAddress?: string; rcLimit?: bigint }): Promise<SendResult> {
+    const { from, valueBase, keys, mode } = opts;
+    const pob = this.net.pob;
+    if (!pob) throw new Error(`burning is not set up for ${this.net.name}`);
+    const vhpAddress = opts.vhpAddress ?? from;
+    if (!isAddress(vhpAddress)) throw new Error("the VHP address is not a valid Koinos address");
+    if (valueBase <= 0n) throw new Error("amount must be positive");
+
+    const burn = { contract: pob, entryPoint: POB_ENTRY.burn as number, args: encodeBurnArgs(valueBase, from, vhpAddress) };
+    let operations = [burn];
+    if (mode === "pqwallet" && !(await this.allowedCaller(from, pob))) {
+      operations = [
+        { contract: from, entryPoint: PQWALLET_ENTRY.set_allowed_caller, args: encodeSetAllowedCallerArgs(pob, true) },
+        burn,
+        { contract: from, entryPoint: PQWALLET_ENTRY.set_allowed_caller, args: encodeSetAllowedCallerArgs(pob, false) },
+      ];
+    }
+
+    let rcLimit = opts.rcLimit;
+    if (rcLimit === undefined) {
+      // Burnt KOIN takes its mana with it, and the fee is paid from what is left afterwards.
+      const avail = await this.mana(from);
+      if (valueBase >= avail) throw new Error("only KOIN with mana can be burned, and some must stay to pay for the transaction");
+      const left = avail - valueBase, cap = 10n * ONE_KOIN, half = avail / 2n;
+      rcLimit = [left, cap, half].reduce((a, b) => (b < a ? b : a));
+    }
+    return this.sendCalls({ from, operations, keys, mode, rcLimit });
+  }
+
+  /**
+   * A single call_contract operation with pre-encoded arguments (a KCS-4 or KCS-5 transfer, say), through
+   * the one signing path below.
    */
   async sendCall(opts: { from: string; contract: string; entryPoint: number; args: Uint8Array; keys: PqKeys; mode: AccountMode; rcLimit?: bigint }): Promise<SendResult> {
-    const { from, contract, entryPoint, args, keys, mode } = opts;
+    const { from, contract, entryPoint, args, keys, mode, rcLimit } = opts;
+    return this.sendCalls({ from, operations: [{ contract, entryPoint, args }], keys, mode, rcLimit });
+  }
+
+  /**
+   * The one signing path: call_contract operations with pre-encoded arguments, in order, in one transaction
+   * (all apply or none does), built, signed with the ML-DSA key for the account's mode, checked locally,
+   * submitted.
+   */
+  async sendCalls(opts: { from: string; operations: Array<{ contract: string; entryPoint: number; args: Uint8Array }>; keys: PqKeys; mode: AccountMode; rcLimit?: bigint }): Promise<SendResult> {
+    const { from, keys, mode } = opts;
     if (!isAddress(from)) throw new Error("sender is not a valid Koinos address");
-    if (!isAddress(contract)) throw new Error("contract is not a valid Koinos address");
-    if (!Number.isInteger(entryPoint) || entryPoint < 0 || entryPoint > 0xffffffff) throw new Error("bad entry point");
-    const operation = callContractOperation(contract, entryPoint, args);
+    if (opts.operations.length === 0) throw new Error("nothing to send");
+    const operations = opts.operations.map(({ contract, entryPoint, args }) => {
+      if (!isAddress(contract)) throw new Error("contract is not a valid Koinos address");
+      if (!Number.isInteger(entryPoint) || entryPoint < 0 || entryPoint > 0xffffffff) throw new Error("bad entry point");
+      return callContractOperation(contract, entryPoint, args);
+    });
 
     let rcLimit = opts.rcLimit;
     if (rcLimit === undefined) {
@@ -195,7 +265,7 @@ export class Chain {
       if (rcLimit <= 0n) throw new Error("this account has no mana");
     }
 
-    const tx: Record<string, unknown> = { header: { payer: from, rc_limit: rcLimit.toString(), chain_id: await this.chainId() }, operations: [operation], signatures: [] };
+    const tx: Record<string, unknown> = { header: { payer: from, rc_limit: rcLimit.toString(), chain_id: await this.chainId() }, operations, signatures: [] };
     await Transaction.prepareTransaction(tx as never, this.provider, from);
     const txId = (tx as { id: string }).id;
 
