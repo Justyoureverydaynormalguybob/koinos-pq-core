@@ -126,6 +126,36 @@ export interface HistoryItem {
   reverted: boolean;
 }
 
+/**
+ * Thrown when a signed transaction was submitted and the node gave no clear answer: it may be in the
+ * mempool, it may be mined in a moment, it may be lost. The caller must not sign a replacement until
+ * `Chain.landed(txId)` says which, or the same payment or burn can happen twice.
+ */
+export class UnconfirmedSendError extends Error {
+  readonly txId: string;
+  constructor(txId: string, why: string) {
+    super(`the node gave no clear answer (${why.split("\n")[0]!.slice(0, 160)}); the transaction may still go through`);
+    this.name = "UnconfirmedSendError";
+    this.txId = txId;
+  }
+}
+
+/**
+ * A refusal is the node's own verdict on the transaction: koilib throws it as the JSON of the RPC error
+ * ({"error": "account ... has not authorized transaction", "code": ...}). Anything else, and an RPC error
+ * that is really the gateway failing to reach the chain, is no verdict at all.
+ */
+export function isRefusal(e: unknown): boolean {
+  const msg = (e as Error)?.message ?? "";
+  if (/AMQP|rpc failed|timed? ?out|unavailable|connection|gateway|ECONN|fetch failed/i.test(msg)) return false;
+  try {
+    const o = JSON.parse(msg) as { error?: unknown };
+    return !!o && typeof o === "object" && typeof o.error === "string" && o.error.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export class Chain {
   readonly provider: Provider;
 
@@ -278,8 +308,35 @@ export class Chain {
     if (!verifyEntry(entry, txId, keys.publicKey, mode)) throw new Error("local signature check failed; nothing was sent");
     (tx as { signatures: string[] }).signatures = [utils.encodeBase64url(entry)];
 
-    const { receipt } = await this.provider.sendTransaction(tx as never);
+    let receipt: unknown;
+    try {
+      ({ receipt } = await this.provider.sendTransaction(tx as never));
+    } catch (e) {
+      if (isRefusal(e)) throw e; // the node judged it and said no: nothing was accepted
+      // No clear answer (a transport error, "AMQP connection is not open", a timeout). The node may have
+      // taken the transaction all the same, so it is looked for before anyone is told it failed: signing
+      // a fresh one now could send the same payment or burn twice.
+      for (let i = 0; i < this.unclearLookups; i++) {
+        await new Promise((r) => setTimeout(r, this.unclearLookupMs));
+        if (await this.landed(txId)) return { txId, receipt: {}, entryBytes: entry.length };
+      }
+      throw new UnconfirmedSendError(txId, (e as Error)?.message || String(e));
+    }
     return { txId, receipt: (receipt ?? {}) as unknown as Record<string, unknown>, entryBytes: entry.length };
+  }
+
+  /** How often, and how far apart, a transaction is looked for after an unclear answer to its submission. */
+  unclearLookups = 4;
+  unclearLookupMs = 2500;
+
+  /** True when a transaction with this id is in a block. False also when the node cannot say. */
+  async landed(txId: string): Promise<boolean> {
+    try {
+      const r = (await this.provider.getTransactionsById([txId])) as { transactions?: unknown[] } | undefined;
+      return !!r?.transactions?.length;
+    } catch {
+      return false;
+    }
   }
 
   /** Resolves with the block height once the transaction is in a block (or throws on timeout). */

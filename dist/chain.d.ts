@@ -47,6 +47,21 @@ export interface HistoryItem {
     burnedForVhp: string | null;
     reverted: boolean;
 }
+/**
+ * Thrown when a signed transaction was submitted and the node gave no clear answer: it may be in the
+ * mempool, it may be mined in a moment, it may be lost. The caller must not sign a replacement until
+ * `Chain.landed(txId)` says which, or the same payment or burn can happen twice.
+ */
+export declare class UnconfirmedSendError extends Error {
+    readonly txId: string;
+    constructor(txId: string, why: string);
+}
+/**
+ * A refusal is the node's own verdict on the transaction: koilib throws it as the JSON of the RPC error
+ * ({"error": "account ... has not authorized transaction", "code": ...}). Anything else, and an RPC error
+ * that is really the gateway failing to reach the chain, is no verdict at all.
+ */
+export declare function isRefusal(e: unknown): boolean;
 export declare class Chain {
     readonly net: Network;
     readonly provider: Provider;
@@ -132,6 +147,11 @@ export declare class Chain {
         mode: AccountMode;
         rcLimit?: bigint;
     }): Promise<SendResult>;
+    /** How often, and how far apart, a transaction is looked for after an unclear answer to its submission. */
+    unclearLookups: number;
+    unclearLookupMs: number;
+    /** True when a transaction with this id is in a block. False also when the node cannot say. */
+    landed(txId: string): Promise<boolean>;
     /** Resolves with the block height once the transaction is in a block (or throws on timeout). */
     waitMined(txId: string, timeoutMs?: number): Promise<string>;
     /**
