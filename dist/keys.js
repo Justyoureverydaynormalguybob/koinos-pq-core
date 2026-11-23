@@ -11,8 +11,20 @@
 // - Accounts that use the contract route (pqwallet) needed a secp256k1 key once, to upload the
 //   contract. That key is derived from the same seed with a domain tag so the seed stays the one
 //   thing to back up.
+// - More accounts from the same 24 words (since 2026-11-23). Account 0 is everything above, unchanged.
+//   Account n >= 1 has its own 32-byte seed,
+//
+//       seed_n = HMAC-SHA256(key = the 32-byte master seed, message = ASCII "koinos-pq/account/" + n in decimal)
+//
+//   and is then exactly what account 0 is to the master seed: ML-DSA-44 key pair from seed_n, bootstrap
+//   secp256k1 key from seed_n, the pqwallet account at that bootstrap key's address. The accounts share
+//   no key, and none reveals another's or the master seed (HMAC is one-way). The 24 words restore them
+//   all: a wallet looks for account 1, 2, ... on the chain. THIS RULE IS PERMANENT: funds sit at the
+//   addresses it produces. test/keys.test.ts pins it with fixed vectors.
 import { ml_dsa44 } from "@noble/post-quantum/ml-dsa.js";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
+import { hmac } from "@noble/hashes/hmac.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { generateMnemonic, mnemonicToEntropy, entropyToMnemonic, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { Signer, utils } from "koilib";
@@ -61,6 +73,31 @@ export function deriveKeys(seed) {
     // keep working. Sharing the buffer made every in-session wallet compute the bootstrap address of 32
     // zero bytes (14PpxNmUVA7qeAw1cyASMfJFUd2xDkPUBR on every network). Found 2026-10-19.
     return { seed: Uint8Array.from(seed), publicKey: k.publicKey, secretKey: k.secretKey, address: utils.bitcoinAddress(k.publicKey) };
+}
+/** The highest account number a wallet may derive (a sanity bound, far above what any wallet shows). */
+export const MAX_ACCOUNT_NUMBER = 0x7fffffff;
+/**
+ * The seed of account `n` of a wallet (see the rule at the top of this file). Account 0's seed is the master
+ * seed itself. Always a fresh array: the caller wipes it.
+ */
+export function accountSeed(masterSeed, n) {
+    if (masterSeed.length !== SEED_BYTES)
+        throw new Error("seed must be 32 bytes");
+    if (!Number.isInteger(n) || n < 0 || n > MAX_ACCOUNT_NUMBER)
+        throw new Error("account number out of range");
+    if (n === 0)
+        return Uint8Array.from(masterSeed);
+    return hmac(sha256, masterSeed, utf8ToBytes(`koinos-pq/account/${n}`));
+}
+/** The keys of account `n`: deriveKeys over its own seed, so everything that takes PqKeys works for it as for account 0. */
+export function deriveAccountKeys(masterSeed, n) {
+    const seed = accountSeed(masterSeed, n);
+    try {
+        return deriveKeys(seed);
+    }
+    finally {
+        seed.fill(0);
+    }
 }
 /** The bootstrap address every pre-fix wallet derived in the session that created it (seed of 32 zero bytes). */
 export const ZERO_SEED_BOOTSTRAP_ADDRESS = "14PpxNmUVA7qeAw1cyASMfJFUd2xDkPUBR";

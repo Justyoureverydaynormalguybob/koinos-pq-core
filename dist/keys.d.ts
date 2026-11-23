@@ -19,6 +19,15 @@ export declare function seedToMnemonic(seed: Uint8Array): string;
 /** Accepts the CLI's 64-hex seed or a 24-word phrase. */
 export declare function parseSeedInput(input: string): Uint8Array;
 export declare function deriveKeys(seed: Uint8Array): PqKeys;
+/** The highest account number a wallet may derive (a sanity bound, far above what any wallet shows). */
+export declare const MAX_ACCOUNT_NUMBER = 2147483647;
+/**
+ * The seed of account `n` of a wallet (see the rule at the top of this file). Account 0's seed is the master
+ * seed itself. Always a fresh array: the caller wipes it.
+ */
+export declare function accountSeed(masterSeed: Uint8Array, n: number): Uint8Array;
+/** The keys of account `n`: deriveKeys over its own seed, so everything that takes PqKeys works for it as for account 0. */
+export declare function deriveAccountKeys(masterSeed: Uint8Array, n: number): PqKeys;
 /** The bootstrap address every pre-fix wallet derived in the session that created it (seed of 32 zero bytes). */
 export declare const ZERO_SEED_BOOTSTRAP_ADDRESS = "14PpxNmUVA7qeAw1cyASMfJFUd2xDkPUBR";
 /** Address for any ML-DSA-44 public key, the same bytes the node derives. */
