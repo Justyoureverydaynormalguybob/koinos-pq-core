@@ -84,7 +84,17 @@ export function decodeFields(b: Uint8Array): Map<number, Array<bigint | Uint8Arr
   return out;
 }
 
-const addr = (base58: string): Uint8Array => utils.decodeBase58(base58);
+/** The 25 bytes of a Koinos address. Anything else (empty, short, a bad checksum) throws: an encoder must never put a non-address where a contract expects one. */
+const addr = (base58: string): Uint8Array => {
+  let b: Uint8Array;
+  try {
+    b = utils.decodeBase58(base58);
+  } catch {
+    throw new Error("not a valid Koinos address");
+  }
+  if (b.length !== 25 || !utils.isChecksumAddress(base58)) throw new Error("not a valid Koinos address");
+  return b;
+};
 const str = (v: bigint | Uint8Array | undefined): string => (v instanceof Uint8Array ? new TextDecoder().decode(v) : "");
 const num = (v: bigint | Uint8Array | undefined): bigint => (typeof v === "bigint" ? v : 0n);
 
@@ -176,7 +186,8 @@ export function encodeGetAllowedCallerArgs(contract: string): Uint8Array {
 }
 /** get_allowed_caller_result { bool value = 1; } */
 export function decodeBoolResult(b: Uint8Array): boolean {
-  return num(decodeFields(b).get(1)?.[0]) !== 0n;
+  const v = decodeFields(b).get(1);
+  return num(v?.[v.length - 1]) !== 0n; // a field sent twice: protobuf, and the chain, take the last
 }
 
 // ---- koinos.contracts.pob (proof of burn): KOIN in, the same amount of VHP out ----

@@ -13,6 +13,11 @@ import { readFileSync } from "node:fs";
 import { Chain, NETWORKS, POB_ENTRY, deriveKeys, encodeBurnArgs, formatKoin, parseKoin, parseSeedInput } from "../dist/index.js";
 
 const net = NETWORKS[process.env.KOINOS_NETWORK || "testnet"];
+// A burn cannot be undone. An exported KOINOS_NETWORK=mainnet left in a shell must not be enough to make one.
+if (net?.name === "mainnet" && !process.argv.includes("--mainnet")) {
+  console.error("refusing to burn on mainnet: pass --mainnet as well if that is really what you mean");
+  process.exit(2);
+}
 if (!net?.pob || !net.vhp) throw new Error("this network has no proof-of-burn contract configured");
 let seedHex = process.env.PQ_SEED_HEX, account = process.env.PQ_ACCOUNT;
 if (process.env.PQ_KEYFILE) {
@@ -22,7 +27,7 @@ if (process.env.PQ_KEYFILE) {
   account = k.contractId ?? k.account.address;
 }
 if (!seedHex || !account) throw new Error("set PQ_SEED_HEX and PQ_ACCOUNT, or PQ_KEYFILE");
-const amount = parseKoin(process.argv[2] ?? "1");
+const amount = parseKoin(process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "1");
 const keys = deriveKeys(parseSeedInput(seedHex));
 const chain = new Chain(net);
 
@@ -41,7 +46,13 @@ if (!before.allowed) {
     console.log("UNEXPECTED: the bare burn was accepted");
     process.exit(1);
   } catch (e) {
-    console.log(`bare burn refused, as it should be: ${String(e.message ?? e).slice(0, 200)}`);
+    const why = String(e.message ?? e);
+    // only the chain's own refusal counts: "node down" proves nothing about the account
+    if (!/authoriz/i.test(why)) {
+      console.log(`NO VERDICT on the bare burn (the node did not judge it): ${why.slice(0, 200)}`);
+      process.exit(2);
+    }
+    console.log(`bare burn refused, as it should be: ${why.slice(0, 200)}`);
   }
 }
 

@@ -87,3 +87,24 @@ describe("abi-lite agrees with koilib's serializer", () => {
     expect(ep(pm.get_allowed_caller)).toBe(PQWALLET_ENTRY.get_allowed_caller);
   });
 });
+
+describe("encoders and decoders against hostile input (pen test 2026-11-23)", () => {
+  it("an encoder refuses anything that is not a 25-byte, checksummed address", async () => {
+    const { encodeSetAllowedCallerArgs, encodeGetAllowedCallerArgs, encodeBurnArgs } = await import("../src/abi-lite");
+    const GOOD = "1G2UuH9LEaHEJKs6hDKYunXVW6nBx3dze2";
+    for (const bad of ["", "1111", "1G2UuH9LEaHEJKs6hDKYunXVW6nBx3dze3", "not base58 0OIl", GOOD + "1"]) {
+      expect(() => encodeSetAllowedCallerArgs(bad, true), bad).toThrow(/not a valid Koinos address/);
+      expect(() => encodeGetAllowedCallerArgs(bad), bad).toThrow(/not a valid Koinos address/);
+      expect(() => encodeBurnArgs(1n, GOOD, bad), bad).toThrow(/not a valid Koinos address/);
+      expect(() => encodeBurnArgs(1n, bad, GOOD), bad).toThrow(/not a valid Koinos address/);
+    }
+    expect(encodeSetAllowedCallerArgs(GOOD, true).length).toBe(2 + 25 + 2);
+  });
+
+  it("a bool sent twice reads as its last value, like the chain", async () => {
+    const { decodeBoolResult } = await import("../src/abi-lite");
+    expect(decodeBoolResult(Uint8Array.from([8, 0, 8, 1]))).toBe(true);
+    expect(decodeBoolResult(Uint8Array.from([8, 1, 8, 0]))).toBe(false);
+    expect(decodeBoolResult(new Uint8Array(0))).toBe(false);
+  });
+});

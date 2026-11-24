@@ -298,7 +298,16 @@ export class Chain {
      */
     async history(address, limit = 20) {
         const r = (await this.provider.call("account_history.get_account_history", { address, limit, ascending: false, irreversible: false }));
-        return (r.values ?? []).map((row) => summarizeHistory(row, address, this.net));
+        return (r.values ?? []).map((row) => {
+            try {
+                return summarizeHistory(row, address, this.net);
+            }
+            catch {
+                // one row the node sent in a shape that cannot be read must not blank the whole list
+                const id = row.trx?.transaction?.id;
+                return summarizeHistory({ seq_num: row.seq_num, trx: { transaction: { id } } }, address, this.net);
+            }
+        });
     }
 }
 // token transfer_event { bytes from = 1; bytes to = 2; uint64 value = 3 }, base64url on the JSON-RPC

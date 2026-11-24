@@ -62,3 +62,19 @@ describe("history rows", () => {
     expect(item).toMatchObject({ direction: "out", counterparty: OTHER, valueBase: "5000000000", contract: net.koin, burnedForVhp: null, summary: `sent 50 to ${OTHER.slice(0, 6)}…${OTHER.slice(-4)}` });
   });
 });
+
+describe("a row the node sends in a shape that cannot be read", () => {
+  it("is listed as a plain transaction, and the rows around it are still read", async () => {
+    const { Chain, NETWORKS } = await import("../src/index");
+    const net = NETWORKS.mainnet!;
+    const ME = "1G2UuH9LEaHEJKs6hDKYunXVW6nBx3dze2";
+    const chain = new Chain({ ...net });
+    const bad = { seq_num: "2", trx: { transaction: { id: "0x1220bad" }, receipt: { events: [{ name: "token.burn_event", source: net.koin, data: { from: ME, value: "abc" } }, { name: "token.mint_event", source: net.vhp, data: { to: ME, value: "abc" } }] } } };
+    const worse = { seq_num: "3", trx: { transaction: { id: "0x1220worse" }, receipt: { events: [{ name: "x.transfer_event", source: net.koin, data: { from: ME, to: "x", value: "abc" } }] } } };
+    (chain.provider as unknown as { call: unknown }).call = async () => ({ values: [{ seq_num: "1", trx: { transaction: { id: "0x1220ok" }, receipt: { events: [] } } }, bad, worse] });
+    const rows = await chain.history(ME);
+    expect(rows).toHaveLength(3);
+    expect(rows.map((r) => r.txId)).toEqual(["0x1220ok", "0x1220bad", "0x1220worse"]);
+    expect(rows[1]!.summary).toBe("transaction");
+  });
+});
