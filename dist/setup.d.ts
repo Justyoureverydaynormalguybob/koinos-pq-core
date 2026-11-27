@@ -1,4 +1,4 @@
-import type { Chain } from "./chain.js";
+import { type Chain } from "./chain.js";
 import { type PqKeys } from "./keys.js";
 export type SetupStep = "checking" | "uploading" | "registering" | "verifying" | "done";
 export interface SetupStatus {
@@ -33,8 +33,16 @@ export interface PqwalletInfo {
     deployed: boolean;
     keyRegistered: boolean;
 }
-/** get_info on the account; any failure to read it counts as "no contract there". */
-export declare function pqwalletInfo(chain: Chain, account: string): Promise<PqwalletInfo>;
+/**
+ * get_info on the account. "No contract there" only on the node's own word (it refuses the read, or what
+ * it returns is not this contract's answer). A node that cannot be reached is tried again and then
+ * THROWS: an unanswered read taken for "nothing installed" would have the activation sign and pay for an
+ * upload onto an account that already has one, or report a mined activation as reverted.
+ */
+export declare function pqwalletInfo(chain: Chain, account: string, tries?: number): Promise<PqwalletInfo>;
+/** pause before a get_info read is tried again (tests shorten it) */
+export declare let pqwalletInfoRetryMs: number;
+export declare function setPqwalletInfoRetryMs(ms: number): void;
 export declare function registeredPublicKey(chain: Chain, account: string): Promise<Uint8Array | null>;
 /**
  * The operations of the single activation transaction, in order: install the contract with every

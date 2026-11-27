@@ -18,6 +18,7 @@
 // so this runs under a Manifest V3 extension's CSP.
 import { Transaction, utils } from "koilib";
 import { callContractOperation, decodeGetInfoResult, decodeGetPublicKeyResult, encodeSetPublicKeyArgs, PQWALLET_ENTRY } from "./abi-lite.js";
+import { isRefusal } from "./chain.js";
 import { loadPqwalletBytecode, pqwalletAbi } from "./contract.js";
 import { bootstrapSigner } from "./keys.js";
 import { proofOfPossession } from "./sign.js";
@@ -47,15 +48,39 @@ export async function estimateSetupCosts(chain) {
 export function bootstrapAddress(keys) {
     return bootstrapSigner(keys.seed).getAddress();
 }
-/** get_info on the account; any failure to read it counts as "no contract there". */
-export async function pqwalletInfo(chain, account) {
+/**
+ * get_info on the account. "No contract there" only on the node's own word (it refuses the read, or what
+ * it returns is not this contract's answer). A node that cannot be reached is tried again and then
+ * THROWS: an unanswered read taken for "nothing installed" would have the activation sign and pay for an
+ * upload onto an account that already has one, or report a mined activation as reverted.
+ */
+export async function pqwalletInfo(chain, account, tries = 3) {
+    let raw;
+    for (let i = 0;; i++) {
+        try {
+            raw = await chain.read(account, PQWALLET_ENTRY.get_info);
+            break;
+        }
+        catch (e) {
+            if (isRefusal(e))
+                return { deployed: false, keyRegistered: false };
+            if (i >= tries - 1)
+                throw new Error(`the ${chain.net.name} node did not answer when asked about the account (${(e?.message || String(e)).split("\n")[0].slice(0, 120)}); nothing was sent`);
+            await new Promise((r) => setTimeout(r, pqwalletInfoRetryMs * (i + 1)));
+        }
+    }
     try {
-        const info = decodeGetInfoResult(await chain.read(account, PQWALLET_ENTRY.get_info));
+        const info = decodeGetInfoResult(raw);
         return { deployed: info.publicKeyBytes === 1312, keyRegistered: info.keyRegistered };
     }
     catch {
-        return { deployed: false, keyRegistered: false };
+        return { deployed: false, keyRegistered: false }; // some other contract answered
     }
+}
+/** pause before a get_info read is tried again (tests shorten it) */
+export let pqwalletInfoRetryMs = 400;
+export function setPqwalletInfoRetryMs(ms) {
+    pqwalletInfoRetryMs = ms;
 }
 export async function registeredPublicKey(chain, account) {
     return decodeGetPublicKeyResult(await chain.read(account, PQWALLET_ENTRY.get_public_key));

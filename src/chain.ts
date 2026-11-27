@@ -71,6 +71,12 @@ export const NETWORKS: Record<string, Network> = {
   },
 };
 
+/** The name of the pinned network that has this chain id ("mainnet", "testnet"), or null when none has. */
+export function pinnedNetworkOf(chainId: string): string | null {
+  for (const n of Object.values(NETWORKS)) if (n.chainId !== null && n.chainId === chainId) return n.name;
+  return null;
+}
+
 export const KOIN_DECIMALS = 8;
 const ONE_KOIN = 10n ** BigInt(KOIN_DECIMALS);
 const MAX_UINT64 = 0xffffffffffffffffn;
@@ -118,6 +124,8 @@ export interface HistoryItem {
   valueBase: string | null;
   direction: "in" | "out" | null;
   counterparty: string | null;
+  /** how many transfer events in the transaction name this address; the fields above describe one of them */
+  transfers: number;
   /**
    * KOIN this address burned for VHP through proof of burn, in base units (the same amount of VHP was minted
    * in the same transaction), or null. Not a transfer: contract, valueBase and direction stay null.
@@ -199,10 +207,16 @@ export class Chain {
    */
   async chainId(): Promise<string> {
     const live = await this.provider.getChainId();
-    if (this.net.chainId !== null && live !== this.net.chainId) {
-      throw new Error(`the ${this.net.name} node reports chain id ${live}, expected ${this.net.chainId}; refusing to use it`);
+    if (this.net.chainId !== null) {
+      if (live !== this.net.chainId) throw new Error(`the ${this.net.name} node reports chain id ${live}, expected ${this.net.chainId}; refusing to use it`);
+      return this.net.chainId;
     }
-    return this.net.chainId ?? live;
+    // A network with no pin (a devnet, whose node is whatever address was typed in) must still never be
+    // one of the pinned chains: a node that answers with mainnet's id would otherwise get a signature
+    // that mainnet accepts while the wallet says "devnet".
+    const real = pinnedNetworkOf(live);
+    if (real) throw new Error(`the ${this.net.name} node reports the chain id of ${real}; refusing to sign for ${real} while set to ${this.net.name}`);
+    return live;
   }
 
   async headHeight(): Promise<string> {
@@ -329,13 +343,22 @@ export class Chain {
   unclearLookups = 4;
   unclearLookupMs = 2500;
 
-  /** True when a transaction with this id is in a block. False also when the node cannot say. */
+  /** True when a transaction with this id is in a block. False also when the node cannot say: use txStatus to tell those apart. */
   async landed(txId: string): Promise<boolean> {
+    return (await this.txStatus(txId)) === "landed";
+  }
+
+  /**
+   * "landed": the transaction is in a block. "absent": the node answered and has no such transaction in a
+   * block (it may still be waiting in a mempool). "unknown": the node could not be asked. A caller that
+   * holds back a second payment must not read "unknown" as "absent".
+   */
+  async txStatus(txId: string): Promise<"landed" | "absent" | "unknown"> {
     try {
       const r = (await this.provider.getTransactionsById([txId])) as { transactions?: unknown[] } | undefined;
-      return !!r?.transactions?.length;
+      return r?.transactions?.length ? "landed" : "absent";
     } catch {
-      return false;
+      return "unknown"; // a node that knows no such transaction answers with an empty list, not an error
     }
   }
 
@@ -443,6 +466,11 @@ export function summarizeHistory(row: Record<string, unknown>, me: string, net?:
   const events = trx?.receipt?.events ?? [];
   let summary = block ? "block produced" : "transaction";
   let contract: string | null = null, valueBase: string | null = null, direction: "in" | "out" | null = null, counterparty: string | null = null;
+  // Every transfer event that names this address. Any contract reached by the transaction can emit one,
+  // with any amount and any addresses in it, so which one is shown is chosen by where it comes from, not
+  // by which comes first: the chain's own KOIN contract before any other. (The event's `source` is set by
+  // the chain; the wallet labels the row with the token at that address, and an unlisted one says so.)
+  const mine: Array<{ d: { from?: string; to?: string; value?: string }; source: string | null }> = [];
   for (const ev of events) {
     if (typeof ev.name !== "string" || !/(^|\.)transfer_event$/.test(ev.name)) continue; // mainnet and Harbinger name it differently
     let d: { from?: string; to?: string; value?: string } = {};
@@ -451,26 +479,31 @@ export function summarizeHistory(row: Record<string, unknown>, me: string, net?:
     } catch {
       continue;
     }
+    if (d.to !== me && d.from !== me) continue;
+    mine.push({ d, source: typeof ev.source === "string" ? ev.source : null });
+  }
+  const shown = (net ? mine.find((m) => m.source === net.koin) : undefined) ?? mine[0];
+  if (shown) {
+    const d = shown.d;
     const amount = d.value ? formatKoin(BigInt(d.value)) : "?";
     if (d.to === me) {
       summary = `received ${amount} from ${short(d.from)}`;
       direction = "in";
       counterparty = d.from ?? null;
-    } else if (d.from === me) {
+    } else {
       summary = `sent ${amount} to ${short(d.to)}`;
       direction = "out";
       counterparty = d.to ?? null;
-    } else continue;
-    contract = typeof ev.source === "string" ? ev.source : null;
+    }
+    contract = shown.source;
     valueBase = d.value ?? null;
-    break;
   }
   // only when no transfer touched this address: a burn says more than "transaction"
   const burned = !direction && net ? burnedForVhp(events, me, net) : null;
   if (burned) summary = `burned ${formatKoin(BigInt(burned))} for VHP`;
   const reverted = !!trx?.receipt?.reverted;
   if (reverted) summary += " (reverted)";
-  return { seq, txId, blockHeight: block?.header?.height ?? null, summary, contract, valueBase, direction, counterparty, burnedForVhp: burned, reverted };
+  return { seq, txId, blockHeight: block?.header?.height ?? null, summary, contract, valueBase, direction, counterparty, transfers: mine.length, burnedForVhp: burned, reverted };
 }
 
 /** Removes control, format (bidi, zero-width) and private-use characters, collapses whitespace, caps length. */

@@ -19,6 +19,8 @@ export interface Network {
     autoBlocks: boolean;
 }
 export declare const NETWORKS: Record<string, Network>;
+/** The name of the pinned network that has this chain id ("mainnet", "testnet"), or null when none has. */
+export declare function pinnedNetworkOf(chainId: string): string | null;
 export declare const KOIN_DECIMALS = 8;
 export declare function formatKoin(base: bigint, places?: number): string;
 /** "1.5" -> 150000000n; rejects anything that is not a plain decimal with at most 8 places */
@@ -40,6 +42,8 @@ export interface HistoryItem {
     valueBase: string | null;
     direction: "in" | "out" | null;
     counterparty: string | null;
+    /** how many transfer events in the transaction name this address; the fields above describe one of them */
+    transfers: number;
     /**
      * KOIN this address burned for VHP through proof of burn, in base units (the same amount of VHP was minted
      * in the same transaction), or null. Not a transfer: contract, valueBase and direction stay null.
@@ -150,8 +154,14 @@ export declare class Chain {
     /** How often, and how far apart, a transaction is looked for after an unclear answer to its submission. */
     unclearLookups: number;
     unclearLookupMs: number;
-    /** True when a transaction with this id is in a block. False also when the node cannot say. */
+    /** True when a transaction with this id is in a block. False also when the node cannot say: use txStatus to tell those apart. */
     landed(txId: string): Promise<boolean>;
+    /**
+     * "landed": the transaction is in a block. "absent": the node answered and has no such transaction in a
+     * block (it may still be waiting in a mempool). "unknown": the node could not be asked. A caller that
+     * holds back a second payment must not read "unknown" as "absent".
+     */
+    txStatus(txId: string): Promise<"landed" | "absent" | "unknown">;
     /** Resolves with the block height once the transaction is in a block (or throws on timeout). */
     waitMined(txId: string, timeoutMs?: number): Promise<string>;
     /**
